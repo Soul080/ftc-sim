@@ -14,7 +14,7 @@ npm run dev
 The dev server is [http://127.0.0.1:4317](http://127.0.0.1:4317).
 
 ```bash
-npm test        # scoring, clock, drive, field layout
+npm test        # scoring, clock, drive, field layout, AI decisions
 npm run build   # tsc and vite build → dist/
 npm run preview
 ```
@@ -27,7 +27,8 @@ The production build sets Vite `base` to `/ftc-sim/`, so the live site is [https
 
 ## What you can do
 
-- Drive a mecanum or tank robot, field-centric or robot-centric. Acceleration scales with mass. Top speed is a separate setting. The chassis stays inside the R102 18 in starting cube.
+- Drive a mecanum or tank robot, field-centric or robot-centric, or set either alliance’s first robot to AI. The AI plays the whole match: it collects pollen and its own nectar, shoots the hive, deposits nectar once flowers open, ejects pollen into its garden when that is closer, stays on its own half in auto, backs off instead of pinning, and parks in its loading zone at endgame. Pace is Gentle, Standard, or Challenging. Blue starts on Standard.
+- Acceleration scales with mass. Top speed, turn rate, strafe efficiency, and braking are separate settings. The chassis stays inside the R102 18 in starting cube.
 - Collide with walls, the hive frame, flowers, game pieces, and the other robot. Rapier steps at 60 Hz with CCD on the balls.
 - Intake pollen (and your own nectar), launch with a hood angle, drop a piece into a nearby flower, or eject it.
 - Run a match: 30 s autonomous, 8 s transition with the robots unpowered, then 2:00 teleop. The scoreboard shows the Table 9-1 clock, which starts at 2:30.
@@ -35,7 +36,8 @@ The production build sets Vite `base` to `/ftc-sim/`, so the live site is [https
 - Hand the human player’s job to a key: nectar enters through that alliance’s loading zone, early entries are a G426 minor, and nectar that left the field can always come back.
 - Script a short autonomous. Paths are robot-centric even if teleop is field-centric.
 - Use one or two gamepads for the second robot on each alliance. An idle gamepad does not steal the keyboard.
-- Switch among broadcast, top, chase, and orbit cameras.
+- Switch among overview, overhead, driver, and orbit cameras. Field of view, colors, a colourblind palette, shadows, and the HUD are in the Look tab.
+- Rebind every driving key. Gamepad deadzone, response curve, invert, and precision scale are saved with the rest of the setup.
 
 ## Controls
 
@@ -54,7 +56,9 @@ W is toward the far wall in field-centric mode. D is toward blue. Robot-centric 
 
 Gamepad (slots 2, and slots 1 if the stick is actually moved): left stick drive, right stick X turn, RT intake, LT launch, RB deposit, LB eject, Y nectar, D-pad up/down hood, Start starts the match.
 
-Enter starts the match. C cycles cameras. M mutes the synthesized match sounds (stand-ins for Table 9-1, not the official recordings). F1–F5 select broadcast, top, red chase, blue chase, and free orbit. Drag orbits, Shift-drag or right-drag pans, the wheel zooms.
+Enter starts the match. C cycles cameras. M mutes the synthesized match sounds (stand-ins for Table 9-1, not the official recordings). T toggles field-centric and robot-centric (that key can be rebound). Hold Shift for precision. F1–F5 select overview, overhead, red driver, blue driver, and free orbit. Drag orbits, Shift-drag or right-drag pans, the wheel zooms.
+
+The setup panel (Match, Robot, Look, Controls, Physics, Auto) writes `localStorage` key `biobuzz-sim-config`. Old saves still load; missing fields keep the defaults.
 
 Auto commands, one per line, `#` comments allowed:
 
@@ -97,7 +101,52 @@ Tests in `src/rules/rules.test.ts` lock the point table, the loading-zone and ga
 
 ## Compared with BioBuzz3D
 
-[BioBuzz3D](https://pandara.org/BioBuzz3D/) is an in-development Godot practice sim from FTC team 506 Pandara. The public play page is a single canvas (about 38 MB of wasm) with a back link. This project is aimed at the same game and adds the things that page does not expose: an HTML scoreboard, the auto / transition / teleop clock, Table 10-2 scoring with cited thresholds, two-alliance local play, autonomous scripts, configurable robots, and tests you can rerun.
+[BioBuzz3D](https://pandara.org/BioBuzz3D/) is an in-development Godot 4.5 practice sim from FTC team 506 Pandara. The public page is a canvas export. Its settings live in the game, not in the HTML, so the list below is taken from that build (settings, garage, controls, and opponent screens). Each row is how this field matches it.
+
+| Pandara option | How this field matches it |
+| --- | --- |
+| Audio: master, robot & field SFX, crowd | Look → Audio sliders. Mute still exists. Crowd is a soft loop that starts after the first gesture. |
+| All sounds generated, flywheel tied to spin-up | Match tones are oscillators. A shot plays a short rising flywheel tone. |
+| Cameras: chase, driver, overhead, overview | Overview (broadcast), overhead (top), red and blue driver cams, plus orbit. |
+| Field of view | Look → Field of view, 30°–90°. |
+| Colourblind palette | Look → Colourblind swaps the red body for orange and keeps blue. |
+| Match HUD hidden / visible | Look → Match HUD. |
+| Opponent overlay (route and current action) | A line under the scoreboard shows each alliance’s driver and, for an AI robot, what it is doing. |
+| Windowed / fullscreen | Look → Fullscreen. |
+| V-sync | Look → Sharp pixels. A page cannot disable display vsync; off forces a 1× pixel ratio. |
+| Anti-aliasing (MSAA) | Look → Anti-aliasing. Changing it rebuilds the WebGL context. |
+| Shadows, with a note to turn them off if the frame rate drops | Look → Shadows. |
+| Drive forward/back, strafe, turn | Controls → Keys, per alliance. Defaults stay WASD / arrows. |
+| Precision hold | Hold the bound key (Shift) or click the left stick. Scale is the Precision slider. |
+| Field-centric toggle | The red “Field / robot” binding (T by default). |
+| Fire (hold to empty), spit one out, intake, stop intake | Launch, eject, and intake bindings. Releasing intake stops it. |
+| Hood up/down, more/less launcher power | Hood keys, and the launch-speed slider. |
+| Aim assist, recalibrate turret | Aim assist pulls the shot toward that alliance’s hive mouth. There is no separate turret; the launcher yaws with the chassis, so recalibrate is not a control. |
+| Start match, reset field, skip auto | Start match, Reset, and an empty auto script (or AI, which replaces the script). |
+| Pause / menu | The setup panel. There is no separate pause; Reset returns to practice. |
+| Save situation, retry scenario | Not ported. Reset reloads the standard setup. |
+| Gamepad deadzone, curves, invert move X/Y, invert turn, precision scale | Controls → Gamepad feel. |
+| Profiles (duplicate, rename, delete) and live stick graphs | One profile, stored with the other settings. Connected pad names are listed. There is no profile library or stick graph. |
+| Seats: one person per robot, or driver + operator | Local two-keyboard play, plus gamepads for the second robot on each alliance. No online lobby. |
+| AI teammate needs no controller | Match → Drivers. Human or AI for red and for blue, with Gentle / Standard / Challenging pace. |
+| Stock mecanum vs measured profile | Robot → Profile. Stock is the shared 1.6 m/s tune. |
+| Motors: REV HD Hex 20:1, 40:1, NeveRest 40 | Those three presets, plus stock and measured. Speed is free rpm × wheel circumference. |
+| Derived acceleration, force, braking, strafe penalty, turn rate | The robot tab prints in/s, strafe penalty, turn °/s, and 0–top time. Force-per-wheel is not shown; acceleration still scales with mass. |
+| Calibration: forward, strafe, accel time, stopping distance, full-spin time, weight | Measured-profile sliders, plus mass. “Apply measurements” copies them into speed, strafe efficiency, turn rate, and braking. |
+| Intake: front only, or front and rear | Robot → Intake. The rear mouth does not change speed or the 4-piece limit. |
+| Collects: pollen only, or pollen and nectar | Robot → Collects. Opponent nectar is still refused (G408). |
+| Robot name, colors | Name, red body color, blue body color. |
+| Import GLB / glTF / STL, scale, tip, turn, roll | Not ported. Pandara limits import to its downloadable build, and collision there stays an 18 in cube. Here the cube is the robot you sized. |
+| Wheels, turret, alliance bumpers drawn on the model | Wheels, hood, nose, and an alliance plate are drawn on the cube. |
+| Autonomous: record inputs, replay, test, delete, run no auto, named routines | Auto tab scripts (`forward`, `turn`, `launch`, and the rest). Clear the box for no auto. Playback is not a recording of your sticks, and there is no routine library. An AI driver ignores the script and plays the match itself. |
+| Opponent behaviors: collect and score, stationary, route, defend, back and forth, stop at end | One match brain instead of scenario bots. It collects and scores, and it stops to park at endgame. Stationary, waypoint routes, and defend-an-area are not separate modes. |
+| Collect-and-score: nearest pollen, up to 4, then a shooting spot, then fire | Same order, plus own nectar to a flower after 1:00, garden ejects when the tape is closer than the hive, and a loading-zone nectar when the entry is legal. |
+| Difficulty: Gentle, Standard, Challenging, and a pace that is a share of full stick | Same three names. Gentle uses 55% stick and parks with 28 s left, Standard 85% and 20 s, Challenging full stick and 12 s. |
+| Driving pace never exceeds the robot | Stick output is at most the pace gain, then the chassis speed, turn rate, and acceleration caps still apply. |
+| Do not model pinning | The AI steers away inside 16 in and will not chase across the midline in auto. |
+| Settings save automatically, reset to defaults | `localStorage`, and Look → Reset settings. |
+
+Pandara’s AI is a practice opponent with waypoints and a defend radius. This one plays a scored match. It does not pin on purpose, and it will not cross the midline during auto.
 
 ## Known gaps
 

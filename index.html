@@ -38,6 +38,7 @@
     </header>
 
     <p id="message" hidden></p>
+    <p id="ai-line" hidden></p>
 
     <button id="panel-toggle" type="button" hidden>Setup</button>
 
@@ -50,10 +51,18 @@
         <button id="panel-close" type="button" class="ghost icon" aria-label="Close setup">×</button>
       </div>
       <p class="lede">
-        Drive both alliances on one computer. Scoring follows Competition Manual Table 10-2. Size, mass, and robot count respawn the field.
+        Drive both alliances, or hand one to the match AI. Settings save in this browser. Size, mass, and robot count respawn the field.
       </p>
+      <div class="tabs" role="tablist">
+        <button type="button" data-tab="match" class="active">Match</button>
+        <button type="button" data-tab="robot">Robot</button>
+        <button type="button" data-tab="look">Look</button>
+        <button type="button" data-tab="controls">Controls</button>
+        <button type="button" data-tab="physics">Physics</button>
+        <button type="button" data-tab="auto">Auto</button>
+      </div>
 
-      <fieldset>
+      <fieldset data-tab="match">
         <legend>Drive</legend>
         <div class="segment" role="group" aria-label="Drive train">
           <button type="button" data-train="mecanum">Mecanum</button>
@@ -69,8 +78,42 @@
         </label>
       </fieldset>
 
-      <fieldset>
+      <fieldset data-tab="match">
+        <legend>Drivers</legend>
+        <label class="choice">Red
+          <select id="red-driver">
+            <option value="human">Human</option>
+            <option value="ai">AI</option>
+          </select>
+        </label>
+        <label class="choice">Red pace
+          <select id="red-difficulty">
+            <option value="gentle">Gentle</option>
+            <option value="standard">Standard</option>
+            <option value="challenging">Challenging</option>
+          </select>
+        </label>
+        <label class="choice">Blue
+          <select id="blue-driver">
+            <option value="human">Human</option>
+            <option value="ai">AI</option>
+          </select>
+        </label>
+        <label class="choice">Blue pace
+          <select id="blue-difficulty">
+            <option value="gentle">Gentle</option>
+            <option value="standard">Standard</option>
+            <option value="challenging">Challenging</option>
+          </select>
+        </label>
+        <p class="hint">The AI plays auto and teleop for that alliance’s first robot: it collects, scores the hive, flowers, and garden, stays off the midline in auto, and parks at endgame. Gentle is slower and parks sooner.</p>
+      </fieldset>
+
+      <fieldset data-tab="robot" hidden>
         <legend>Robot <span>R102, 18 in cube</span></legend>
+        <label class="choice">Name
+          <input id="robot-name" type="text" maxlength="24" value="Robot" />
+        </label>
         <label class="slider">Length
           <input id="length" type="range" min="12" max="18" step="0.5" value="16" />
           <span id="length-out">16 in</span>
@@ -88,12 +131,64 @@
           <span id="mass-out">12 kg</span>
         </label>
         <label class="slider">Top speed
-          <input id="speed" type="range" min="0.5" max="2.6" step="0.1" value="1.6" />
+          <input id="speed" type="range" min="0.4" max="3.2" step="0.05" value="1.6" />
           <span id="speed-out">1.6 m/s</span>
         </label>
+        <label class="choice">Profile
+          <select id="motor">
+            <option value="stock">Stock mecanum</option>
+            <option value="hex20">REV HD Hex 20:1</option>
+            <option value="hex40">REV HD Hex 40:1</option>
+            <option value="neverest40">NeveRest 40</option>
+            <option value="measured">From measurements</option>
+          </select>
+        </label>
+        <label class="slider">Wheel
+          <input id="wheel" type="range" min="2" max="6" step="0.1" value="4" />
+          <span id="wheel-out">4 in</span>
+        </label>
+        <p id="derived" class="hint"></p>
+        <label class="choice">Intake
+          <select id="intake-ends">
+            <option value="front">Front only</option>
+            <option value="both">Front and rear</option>
+          </select>
+        </label>
+        <label class="choice">Collects
+          <select id="collects">
+            <option value="both">Pollen and nectar</option>
+            <option value="pollen">Pollen only</option>
+          </select>
+        </label>
+        <p class="hint">A second intake does not change top speed or the 4-piece hold. Collision stays the cube above.</p>
       </fieldset>
 
-      <fieldset>
+      <fieldset data-tab="robot" hidden>
+        <legend>Measured profile</legend>
+        <label class="slider">Forward
+          <input id="meas-fwd" type="range" min="0.4" max="3.2" step="0.05" value="1.6" />
+          <span id="meas-fwd-out">1.6 m/s</span>
+        </label>
+        <label class="slider">Strafe
+          <input id="meas-strafe" type="range" min="0.2" max="3.2" step="0.05" value="1.35" />
+          <span id="meas-strafe-out">1.35 m/s</span>
+        </label>
+        <label class="slider">0 to top
+          <input id="meas-accel" type="range" min="0.15" max="3" step="0.05" value="0.45" />
+          <span id="meas-accel-out">0.45 s</span>
+        </label>
+        <label class="slider">Stop
+          <input id="meas-stop" type="range" min="2" max="48" step="1" value="14" />
+          <span id="meas-stop-out">14 in</span>
+        </label>
+        <label class="slider">Full spin
+          <input id="meas-turn" type="range" min="0.4" max="8" step="0.1" value="1.6" />
+          <span id="meas-turn-out">1.6 s</span>
+        </label>
+        <button id="apply-measured" type="button">Apply measurements</button>
+      </fieldset>
+
+      <fieldset data-tab="robot" hidden>
         <legend>Launch</legend>
         <label class="slider">Speed
           <input id="launch" type="range" min="3" max="12" step="0.1" value="6.6" />
@@ -105,19 +200,61 @@
         <label class="check"><input id="mute" type="checkbox" /> Mute match sounds</label>
       </fieldset>
 
-      <fieldset>
+      <fieldset data-tab="look" hidden>
         <legend>Camera</legend>
         <div class="cams">
-          <button type="button" data-camera="broadcast">Broadcast</button>
-          <button type="button" data-camera="top">Top</button>
-          <button type="button" data-camera="red">Red chase</button>
-          <button type="button" data-camera="blue">Blue chase</button>
+          <button type="button" data-camera="broadcast">Overview</button>
+          <button type="button" data-camera="top">Overhead</button>
+          <button type="button" data-camera="red">Red driver</button>
+          <button type="button" data-camera="blue">Blue driver</button>
           <button type="button" data-camera="free">Orbit</button>
         </div>
+        <label class="slider">Field of view
+          <input id="fov" type="range" min="30" max="90" step="1" value="48" />
+          <span id="fov-out">48°</span>
+        </label>
         <p class="hint">Drag to orbit. Shift-drag or right-drag pans. Scroll zooms. C cycles. F1–F5 jump.</p>
       </fieldset>
 
-      <fieldset>
+      <fieldset data-tab="look" hidden>
+        <legend>Color and graphics</legend>
+        <label class="choice">Red body
+          <input id="red-color" type="color" value="#d64545" />
+        </label>
+        <label class="choice">Blue body
+          <input id="blue-color" type="color" value="#3a78ef" />
+        </label>
+        <label class="check"><input id="colorblind" type="checkbox" /> Colourblind (orange / blue)</label>
+        <label class="check"><input id="show-hud" type="checkbox" checked /> Match HUD</label>
+        <label class="check"><input id="overlay" type="checkbox" checked /> Opponent overlay</label>
+        <label class="check"><input id="shadows" type="checkbox" checked /> Shadows</label>
+        <label class="check"><input id="msaa" type="checkbox" checked /> Anti-aliasing</label>
+        <label class="check"><input id="vsync" type="checkbox" checked /> Sharp pixels (vsync stand-in)</label>
+        <div class="segment">
+          <button id="fullscreen" type="button">Fullscreen</button>
+          <button id="reset-settings" type="button" class="ghost">Reset settings</button>
+        </div>
+        <p class="hint">The page cannot turn the display’s vsync off. That toggle drops the pixel ratio to 1. Anti-aliasing rebuilds the WebGL context.</p>
+      </fieldset>
+
+      <fieldset data-tab="look" hidden>
+        <legend>Audio</legend>
+        <label class="slider">Master
+          <input id="master" type="range" min="0" max="1" step="0.05" value="1" />
+          <span id="master-out">100%</span>
+        </label>
+        <label class="slider">Robot / field
+          <input id="sfx" type="range" min="0" max="1" step="0.05" value="1" />
+          <span id="sfx-out">100%</span>
+        </label>
+        <label class="slider">Crowd
+          <input id="crowd" type="range" min="0" max="1" step="0.05" value="0.25" />
+          <span id="crowd-out">25%</span>
+        </label>
+        <p class="hint">Sounds are synthesized. A shot plays a short flywheel rise. Crowd starts after the first match buzzer, when the browser allows audio.</p>
+      </fieldset>
+
+      <fieldset data-tab="auto" hidden>
         <legend>Autonomous <span>robot-centric</span></legend>
         <p class="hint">forward, back, strafe, turn, wait, intake, launch, deposit, eject, hood. Add a count to launch.</p>
         <label>Red 1<textarea id="script-red-1" spellcheck="false"></textarea></label>
@@ -126,22 +263,73 @@
         <label class="extra-script">Blue 2<textarea id="script-blue-2" spellcheck="false"></textarea></label>
       </fieldset>
 
-      <fieldset>
+      <fieldset data-tab="controls" hidden>
         <legend>Keys</legend>
-        <table>
-          <thead><tr><th></th><th>Red 1</th><th>Blue 1</th></tr></thead>
-          <tbody>
-            <tr><td>Drive</td><td>W A S D</td><td>Arrows</td></tr>
-            <tr><td>Turn</td><td>Q / E</td><td>K / L</td></tr>
-            <tr><td>Intake</td><td>F</td><td>;</td></tr>
-            <tr><td>Launch</td><td>G</td><td>'</td></tr>
-            <tr><td>Deposit</td><td>V</td><td>/</td></tr>
-            <tr><td>Eject</td><td>X</td><td>.</td></tr>
-            <tr><td>Nectar</td><td>Z</td><td>B</td></tr>
-            <tr><td>Hood</td><td>1 / 2</td><td>9 / 0</td></tr>
-          </tbody>
-        </table>
-        <p class="hint">Slots 2 use gamepads. Left stick drives, right stick turns, RT intake, LT launch, RB deposit, LB eject, Y nectar, D-pad hood, Start begins the match.</p>
+        <p class="hint">Click a key, then press the new one. Escape cancels. Field / robot uses the red binding.</p>
+        <div id="red-binds" class="bind-grid"></div>
+        <h2>Blue 1</h2>
+        <div id="blue-binds" class="bind-grid"></div>
+      </fieldset>
+
+      <fieldset data-tab="controls" hidden>
+        <legend>Gamepad feel</legend>
+        <label class="slider">Move deadzone
+          <input id="deadzone" type="range" min="0" max="0.5" step="0.01" value="0.15" />
+          <span id="deadzone-out">0.15</span>
+        </label>
+        <label class="slider">Turn deadzone
+          <input id="turn-deadzone" type="range" min="0" max="0.5" step="0.01" value="0.15" />
+          <span id="turn-deadzone-out">0.15</span>
+        </label>
+        <label class="slider">Move curve
+          <input id="move-curve" type="range" min="0.5" max="3" step="0.1" value="1" />
+          <span id="move-curve-out">1</span>
+        </label>
+        <label class="slider">Turn curve
+          <input id="turn-curve" type="range" min="0.5" max="3" step="0.1" value="1" />
+          <span id="turn-curve-out">1</span>
+        </label>
+        <label class="slider">Precision
+          <input id="precision" type="range" min="0.15" max="1" step="0.05" value="0.4" />
+          <span id="precision-out">0.40</span>
+        </label>
+        <label class="check"><input id="invert-x" type="checkbox" /> Invert strafe</label>
+        <label class="check"><input id="invert-y" type="checkbox" /> Invert forward</label>
+        <label class="check"><input id="invert-turn" type="checkbox" /> Invert turn</label>
+        <p id="pads" class="hint">No gamepad yet. Left stick drives, right stick turns, RT intake, LT launch, RB deposit, LB eject, Y nectar, click the left stick for precision, D-pad hood, Start begins the match. Slots 2 are gamepad-only.</p>
+      </fieldset>
+
+      <fieldset data-tab="physics" hidden>
+        <legend>Physics</legend>
+        <label class="slider">Turn rate
+          <input id="turn-rate" type="range" min="0.4" max="6" step="0.1" value="2.5" />
+          <span id="turn-rate-out">2.5 rad/s</span>
+        </label>
+        <label class="slider">Strafe
+          <input id="strafe-eff" type="range" min="0.35" max="1" step="0.05" value="0.9" />
+          <span id="strafe-eff-out">90%</span>
+        </label>
+        <label class="slider">Accel
+          <input id="accel" type="range" min="0.3" max="2.5" step="0.05" value="1" />
+          <span id="accel-out">1.00×</span>
+        </label>
+        <label class="slider">Braking
+          <input id="brake" type="range" min="0" max="2" step="0.02" value="0.04" />
+          <span id="brake-out">0.04</span>
+        </label>
+        <label class="slider">Gravity
+          <input id="gravity" type="range" min="2" max="20" step="0.1" value="9.8" />
+          <span id="gravity-out">9.8</span>
+        </label>
+        <label class="slider">Friction
+          <input id="friction" type="range" min="0.05" max="2" step="0.05" value="1.05" />
+          <span id="friction-out">1.05</span>
+        </label>
+        <label class="slider">Bounce
+          <input id="bounce" type="range" min="0" max="0.95" step="0.05" value="0.32" />
+          <span id="bounce-out">0.32</span>
+        </label>
+        <p class="hint">Strafe is the mecanum sideways efficiency. Braking is linear damping. Bounce is ball restitution. Gravity is metres per second squared.</p>
       </fieldset>
 
       <section class="tray" aria-label="Nectar and fouls">

@@ -1,7 +1,9 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
 import { predictArc, shotVelocity, type Vec3 } from "../rules/ballistics";
+import { decide, type AiInput, type Difficulty } from "../rules/ai";
 import { clockDisplay, flowerWindowOpen, nectarEntryLegal, tickClock, autoClock, setupClock, type Clock, type Phase } from "../rules/clock";
+import { BLUE_KEYS, RED_KEYS, type KeyMap } from "../rules/controls";
 import {
   BALL_DRAG_K,
   CELL_CENTER_ARM_IN,
@@ -47,12 +49,16 @@ import {
   type PieceSpawn,
 } from "../rules/layout";
 import { scoreMatch, type HiveTip, type MatchScore, type ScoreFoul, type ScorePiece, type ScoreRobot } from "../rules/scoring";
-import { makeBall, makeBeam, makeFlower, makeFrame, makeRobot, makeWalls, disposeRobotTextures } from "../render/meshes";
+import { makeBall, makeBeam, makeFlower, makeFrame, makeRobot, makeWalls, disposeRobotTextures, recolorRobot } from "../render/meshes";
 import { makeFloorMesh } from "../render/floor";
 import { Announcer } from "./audio";
 import { quatX, quatY, wrapPi, yawOf } from "./math";
 
 export type CameraName = "broadcast" | "top" | "red" | "blue" | "free";
+export type DriverMode = "human" | "ai";
+export type IntakeEnds = "front" | "both";
+export type CollectMode = "pollen" | "both";
+export type MotorPreset = "stock" | "hex20" | "hex40" | "neverest40" | "measured";
 
 export interface SimConfig {
   lengthIn: number;
@@ -68,6 +74,49 @@ export interface SimConfig {
   trajectory: boolean;
   aimAssist: boolean;
   muted: boolean;
+  redDriver: DriverMode;
+  blueDriver: DriverMode;
+  redDifficulty: Difficulty;
+  blueDifficulty: Difficulty;
+  fov: number;
+  turnRate: number;
+  strafeEfficiency: number;
+  accelScale: number;
+  brakeDamping: number;
+  gravity: number;
+  robotFriction: number;
+  ballRestitution: number;
+  intakeEnds: IntakeEnds;
+  collects: CollectMode;
+  colorblind: boolean;
+  redColor: string;
+  blueColor: string;
+  robotName: string;
+  showHud: boolean;
+  opponentOverlay: boolean;
+  shadows: boolean;
+  msaa: boolean;
+  vsync: boolean;
+  master: number;
+  sfx: number;
+  crowd: number;
+  deadzone: number;
+  turnDeadzone: number;
+  moveCurve: number;
+  turnCurve: number;
+  invertMoveX: boolean;
+  invertMoveY: boolean;
+  invertTurn: boolean;
+  precisionScale: number;
+  motor: MotorPreset;
+  wheelDiameterIn: number;
+  measFwd: number;
+  measStrafe: number;
+  measAccel: number;
+  measStop: number;
+  measTurn: number;
+  redKeys: KeyMap;
+  blueKeys: KeyMap;
 }
 
 export interface HudModel {
@@ -86,6 +135,8 @@ export interface HudModel {
   train: DriveTrain;
   held: Array<{ id: string; alliance: Alliance; count: number; hood: number }>;
   practice: boolean;
+  ai: Record<Alliance, string>;
+  pads: string[];
 }
 
 interface Robot {
@@ -109,6 +160,8 @@ interface Robot {
   autoFouled: boolean;
   opponentGrabs: number;
   pinWarn: number;
+  aiStatus: string;
+  aiNectar: boolean;
 }
 
 interface Piece {
@@ -160,6 +213,49 @@ export const DEFAULT_CONFIG: SimConfig = {
   trajectory: true,
   aimAssist: false,
   muted: false,
+  redDriver: "human",
+  blueDriver: "ai",
+  redDifficulty: "standard",
+  blueDifficulty: "standard",
+  fov: 48,
+  turnRate: 2.5,
+  strafeEfficiency: 0.9,
+  accelScale: 1,
+  brakeDamping: 0.04,
+  gravity: GRAVITY,
+  robotFriction: 1.05,
+  ballRestitution: 0.32,
+  intakeEnds: "front",
+  collects: "both",
+  colorblind: false,
+  redColor: "#d64545",
+  blueColor: "#3a78ef",
+  robotName: "Robot",
+  showHud: true,
+  opponentOverlay: true,
+  shadows: true,
+  msaa: true,
+  vsync: true,
+  master: 1,
+  sfx: 1,
+  crowd: 0.25,
+  deadzone: 0.15,
+  turnDeadzone: 0.15,
+  moveCurve: 1,
+  turnCurve: 1,
+  invertMoveX: false,
+  invertMoveY: false,
+  invertTurn: false,
+  precisionScale: 0.4,
+  motor: "stock",
+  wheelDiameterIn: 4,
+  measFwd: 1.6,
+  measStrafe: 1.35,
+  measAccel: 0.45,
+  measStop: 14,
+  measTurn: 1.6,
+  redKeys: { ...RED_KEYS },
+  blueKeys: { ...BLUE_KEYS },
 };
 
 export const SAMPLE_RED_AUTO = `forward 30
@@ -208,6 +304,7 @@ export class Simulator {
   private acc = 0;
   private simTime = 0;
   private nectarEdge: Record<Alliance, boolean> = { red: false, blue: false };
+  private keyCapture = false;
   private orbit = { theta: 0.55, phi: 1.05, radius: 4.4, target: new THREE.Vector3(0, 0.2, 0) };
   private dragging = false;
   private dragButton = 0;
@@ -256,7 +353,7 @@ export class Simulator {
     this.buildStatic();
     this.spawnActors();
     this.ready = true;
-    this.onResize();
+    this.applyLook();
   }
 
   frame(now: number): void {
@@ -264,9 +361,13 @@ export class Simulator {
     if (this.last === 0) this.last = now;
     const dt = Math.min(0.05, (now - this.last) / 1000);
     this.last = now;
-    if (!isTyping()) {
-      this.nectarEdge.red = this.edges.has("KeyZ");
-      this.nectarEdge.blue = this.edges.has("KeyB");
+    if (!isTyping() && !this.keyCapture) {
+      this.nectarEdge.red = this.edges.has(this.config.redKeys.nectar);
+      this.nectarEdge.blue = this.edges.has(this.config.blueKeys.nectar);
+      const toggle = this.config.redKeys.fieldCentric;
+      if (toggle && this.edges.has(toggle)) {
+        this.setConfig({ mode: this.config.mode === "field" ? "robot" : "field" });
+      }
     }
     this.edges.clear();
     this.readCameraKeys();
@@ -319,16 +420,30 @@ export class Simulator {
   }
 
   setConfig(next: Partial<SimConfig>): void {
-    const merged = sanitize({ ...this.config, ...next });
+    const merged = sanitize({
+      ...this.config,
+      ...next,
+      redKeys: { ...this.config.redKeys, ...(next.redKeys ?? {}) },
+      blueKeys: { ...this.config.blueKeys, ...(next.blueKeys ?? {}) },
+    });
     const structural =
       merged.lengthIn !== this.config.lengthIn ||
       merged.widthIn !== this.config.widthIn ||
       merged.heightIn !== this.config.heightIn ||
       merged.massKg !== this.config.massKg ||
       merged.robotCount !== this.config.robotCount;
+    const msaaChanged = merged.msaa !== this.config.msaa;
     this.config = merged;
-    this.announcer.muted = merged.muted;
+    this.announcer.setMix(merged.master, merged.sfx, merged.crowd, merged.muted);
+    this.applyLook();
+    if (msaaChanged) this.rebuildRenderer();
     if (structural && this.ready) this.resetField();
+    else this.paintRobots();
+  }
+
+  setKeyCapture(active: boolean): void {
+    this.keyCapture = active;
+    if (active) this.keys.clear();
   }
 
   getConfig(): SimConfig {
@@ -375,6 +490,11 @@ export class Simulator {
         hood: Math.round(robot.hood),
       })),
       practice,
+      ai: {
+        red: this.robots.find((robot) => robot.alliance === "red" && robot.slot === 1)?.aiStatus ?? "",
+        blue: this.robots.find((robot) => robot.alliance === "blue" && robot.slot === 1)?.aiStatus ?? "",
+      },
+      pads: this.connectedPads(),
     };
   }
 
@@ -577,12 +697,19 @@ export class Simulator {
       const collider = world.createCollider(
         RAPIER.ColliderDesc.cuboid(m(this.config.widthIn / 2), m(this.config.heightIn / 2), m(this.config.lengthIn / 2))
           .setMass(this.config.massKg)
-          .setFriction(1.05)
+          .setFriction(this.config.robotFriction)
           .setRestitution(0.02),
         body,
       );
       const label = `${start.alliance === "red" ? "R" : "B"}${start.slot}`;
-      const mesh = makeRobot(start.alliance, label, this.config.lengthIn, this.config.widthIn, this.config.heightIn);
+      const mesh = makeRobot(
+        start.alliance,
+        label,
+        this.config.lengthIn,
+        this.config.widthIn,
+        this.config.heightIn,
+        this.allianceColor(start.alliance),
+      );
       this.scene.add(mesh);
       this.robots.push({
         id: start.id,
@@ -605,6 +732,8 @@ export class Simulator {
         autoFouled: false,
         opponentGrabs: 0,
         pinWarn: 0,
+        aiStatus: "",
+        aiNectar: false,
       });
     }
     for (const spawn of pieceSpawns(this.config.robotCount)) this.spawnPiece(spawn);
@@ -642,7 +771,7 @@ export class Simulator {
       RAPIER.ColliderDesc.ball(m(radiusIn))
         .setMass(mass)
         .setFriction(0.42)
-        .setRestitution(0.32),
+        .setRestitution(this.config.ballRestitution),
       body,
     );
     const mesh = makeBall(spawn.kind, spawn.alliance);
@@ -729,13 +858,52 @@ export class Simulator {
       if (!robot) continue;
       robot.cooldown = Math.max(0, robot.cooldown - dt);
       robot.intakeWait = Math.max(0, robot.intakeWait - dt);
-      const human = this.humanStick(robot, pads[index] ?? null);
-      let stick = human.stick;
-      let launch = human.launch;
-      let intake = human.intake;
-      let deposit = human.deposit;
-      let eject = human.eject;
-      if (this.clock.phase === "auto") {
+      let stick: Stick = { forward: 0, strafe: 0, turn: 0 };
+      let launch = false;
+      let intake = false;
+      let deposit = false;
+      let eject = false;
+      let driveMode: DriveMode = this.clock.phase === "auto" ? "robot" : this.config.mode;
+      const aiOn = robot.slot === 1 && this.driverOf(robot.alliance) === "ai";
+      const scripted = !aiOn && this.clock.phase === "auto";
+      const frozen = this.clock.phase === "transition" || this.clock.phase === "ended";
+      if (!aiOn && !scripted && !frozen) {
+        const human = this.humanStick(robot, pads[index] ?? null);
+        stick = human.stick;
+        launch = human.launch;
+        intake = human.intake;
+        deposit = human.deposit;
+        eject = human.eject;
+      }
+      if (this.clock.phase === "transition" || this.clock.phase === "ended") {
+        stick = { forward: 0, strafe: 0, turn: 0 };
+        launch = false;
+        intake = false;
+        deposit = false;
+        eject = false;
+        robot.aiStatus = this.clock.phase === "transition" ? "Disabled by the match" : "Match over";
+        robot.aiNectar = false;
+      } else if (aiOn && (this.clock.phase === "auto" || this.clock.phase === "teleop")) {
+        const cmd = decide(this.aiView(robot));
+        stick = { forward: cmd.forward, strafe: cmd.strafe, turn: cmd.turn };
+        launch = cmd.launch;
+        intake = cmd.intake;
+        deposit = cmd.deposit;
+        eject = cmd.eject;
+        if (cmd.hood !== null) robot.hood = clamp(cmd.hood, 25, 75);
+        if (cmd.nectar && !robot.aiNectar) this.nectarEdge[robot.alliance] = true;
+        robot.aiNectar = cmd.nectar;
+        robot.aiStatus = cmd.status;
+        driveMode = "field";
+      } else if (aiOn) {
+        stick = { forward: 0, strafe: 0, turn: 0 };
+        launch = false;
+        intake = false;
+        deposit = false;
+        eject = false;
+        robot.aiStatus = "Waiting";
+        robot.aiNectar = false;
+      } else if (this.clock.phase === "auto") {
         const driven = this.stepRobotAuto(robot, dt);
         stick = { forward: driven.forward, strafe: driven.strafe, turn: driven.turn };
         launch = driven.launch;
@@ -743,14 +911,11 @@ export class Simulator {
         deposit = driven.deposit;
         eject = driven.eject;
         if (driven.hood !== null) robot.hood = clamp(driven.hood, 25, 75);
-      } else if (this.clock.phase === "transition" || this.clock.phase === "ended") {
-        stick = { forward: 0, strafe: 0, turn: 0 };
-        launch = false;
-        intake = false;
-        deposit = false;
-        eject = false;
+        robot.aiStatus = "";
+      } else {
+        robot.aiStatus = "";
       }
-      this.applyDrive(robot, stick, dt);
+      this.applyDrive(robot, stick, dt, driveMode);
       if (launch) this.launch(robot, false);
       if (deposit) this.launch(robot, true);
       if (eject) this.eject(robot);
@@ -788,33 +953,20 @@ export class Simulator {
     if (robot.slot !== 1) return { stick: { forward: 0, strafe: 0, turn: 0 }, launch: false, intake: false, deposit: false, eject: false };
     const typing = isTyping();
     const down = (code: string) => !typing && this.keys.has(code);
-    if (robot.alliance === "red") {
-      if (down("Digit1")) robot.hood = clamp(robot.hood + STEP * 50, 25, 75);
-      if (down("Digit2")) robot.hood = clamp(robot.hood - STEP * 50, 25, 75);
-      return {
-        stick: {
-          forward: axis(down("KeyS"), down("KeyW")),
-          strafe: axis(down("KeyA"), down("KeyD")),
-          turn: axis(down("KeyQ"), down("KeyE")),
-        },
-        launch: down("KeyG"),
-        intake: down("KeyF"),
-        deposit: down("KeyV"),
-        eject: down("KeyX"),
-      };
-    }
-    if (down("Digit9")) robot.hood = clamp(robot.hood + STEP * 50, 25, 75);
-    if (down("Digit0")) robot.hood = clamp(robot.hood - STEP * 50, 25, 75);
+    const keys = robot.alliance === "red" ? this.config.redKeys : this.config.blueKeys;
+    if (down(keys.hoodUp)) robot.hood = clamp(robot.hood + STEP * 50, 25, 75);
+    if (down(keys.hoodDown)) robot.hood = clamp(robot.hood - STEP * 50, 25, 75);
+    const scale = down(keys.precision) ? this.config.precisionScale : 1;
     return {
       stick: {
-        forward: axis(down("ArrowDown"), down("ArrowUp")),
-        strafe: axis(down("ArrowLeft"), down("ArrowRight")),
-        turn: axis(down("KeyK"), down("KeyL")),
+        forward: axis(down(keys.back), down(keys.forward)) * scale,
+        strafe: axis(down(keys.strafeLeft), down(keys.strafeRight)) * scale,
+        turn: axis(down(keys.turnLeft), down(keys.turnRight)) * scale,
       },
-      launch: down("Quote"),
-      intake: down("Semicolon"),
-      deposit: down("Slash"),
-      eject: down("Period"),
+      launch: down(keys.launch),
+      intake: down(keys.intake),
+      deposit: down(keys.deposit),
+      eject: down(keys.eject),
     };
   }
 
@@ -827,7 +979,6 @@ export class Simulator {
     nectarEdge: boolean;
     hood: number;
   } {
-    const dead = (value: number) => (Math.abs(value) < 0.15 ? 0 : value);
     const button = (index: number) => pad.buttons[index]?.pressed ?? false;
     const tagged = pad as Gamepad & { __prevY?: boolean; __prevStart?: boolean };
     const previous = tagged.__prevY ?? false;
@@ -836,11 +987,12 @@ export class Simulator {
     const start = button(9);
     if (start && !tagged.__prevStart && this.clock.phase === "setup") this.startMatch();
     tagged.__prevStart = start;
+    const precision = button(10) ? this.config.precisionScale : 1;
     return {
       stick: {
-        forward: -dead(pad.axes[1] ?? 0),
-        strafe: dead(pad.axes[0] ?? 0),
-        turn: dead(pad.axes[2] ?? 0),
+        forward: this.shapeAxis(-(pad.axes[1] ?? 0), this.config.deadzone, this.config.moveCurve, this.config.invertMoveY) * precision,
+        strafe: this.shapeAxis(pad.axes[0] ?? 0, this.config.deadzone, this.config.moveCurve, this.config.invertMoveX) * precision,
+        turn: this.shapeAxis(pad.axes[2] ?? 0, this.config.turnDeadzone, this.config.turnCurve, this.config.invertTurn) * precision,
       },
       intake: (pad.buttons[7]?.value ?? 0) > 0.4,
       launch: (pad.buttons[6]?.value ?? 0) > 0.4,
@@ -877,13 +1029,23 @@ export class Simulator {
     return stepped.drive;
   }
 
-  private applyDrive(robot: Robot, stick: Stick, dt: number): void {
+  private applyDrive(robot: Robot, stick: Stick, dt: number, mode: DriveMode): void {
     const yaw = yawOf(robot.body.rotation());
-    const command = chassisCommand(stick, yaw, this.clock.phase === "auto" ? "robot" : this.config.mode, this.config.train, this.config.maxSpeed, 2.5);
+    const command = chassisCommand(
+      stick,
+      yaw,
+      mode,
+      this.config.train,
+      this.config.maxSpeed,
+      this.config.turnRate,
+      this.config.strafeEfficiency,
+    );
     robot.wish.set(command.vx, 0, command.vz);
     const velocity = robot.body.linvel();
     const mass = Math.max(1, robot.body.mass());
-    const aMax = 4.4 * (12 / mass);
+    const base = this.config.motor === "measured" ? this.config.maxSpeed / Math.max(0.2, this.config.measAccel) : 4.4 * (12 / mass);
+    const aMax = base * this.config.accelScale;
+    robot.body.setLinearDamping(this.config.brakeDamping);
     const dvx = clamp(command.vx - velocity.x, -aMax * dt, aMax * dt);
     const dvz = clamp(command.vz - velocity.z, -aMax * dt, aMax * dt);
     robot.body.applyImpulse({ x: dvx * mass, y: 0, z: dvz * mass }, true);
@@ -919,6 +1081,7 @@ export class Simulator {
       shotYaw = yaw + wrapPi(Math.atan2(mouth.x - muzzle.x, mouth.z - muzzle.z) - yaw) * 0.72;
     }
     const velocity = shotVelocity(shotYaw, robot.hood, this.config.launchSpeed);
+    this.announcer.spin();
     this.release(robot, piece, velocity, muzzle, robot.hood >= 35);
   }
 
@@ -966,20 +1129,25 @@ export class Simulator {
     const pos = robot.body.translation();
     const fx = Math.sin(yaw);
     const fz = Math.cos(yaw);
-    const mouthX = pos.x + fx * m(this.config.lengthIn / 2);
-    const mouthZ = pos.z + fz * m(this.config.lengthIn / 2);
+    const mouths = [{ fx, fz, x: pos.x + fx * m(this.config.lengthIn / 2), z: pos.z + fz * m(this.config.lengthIn / 2) }];
+    if (this.config.intakeEnds === "both") {
+      mouths.push({ fx: -fx, fz: -fz, x: pos.x - fx * m(this.config.lengthIn / 2), z: pos.z - fz * m(this.config.lengthIn / 2) });
+    }
     let best: Piece | null = null;
     let bestD = m(11);
-    for (const piece of this.pieces) {
-      if (piece.mode !== "free" || this.simTime < piece.spillUntil) continue;
-      const at = piece.body.translation();
-      const dx = at.x - mouthX;
-      const dz = at.z - mouthZ;
-      const dist = Math.hypot(dx, dz);
-      const ahead = dx * fx + dz * fz;
-      if (dist < bestD && ahead > -0.05) {
-        best = piece;
-        bestD = dist;
+    for (const mouth of mouths) {
+      for (const piece of this.pieces) {
+        if (piece.mode !== "free" || this.simTime < piece.spillUntil) continue;
+        if (this.config.collects === "pollen" && piece.kind !== "pollen") continue;
+        const at = piece.body.translation();
+        const dx = at.x - mouth.x;
+        const dz = at.z - mouth.z;
+        const dist = Math.hypot(dx, dz);
+        const ahead = dx * mouth.fx + dz * mouth.fz;
+        if (dist < bestD && ahead > -0.05) {
+          best = piece;
+          bestD = dist;
+        }
       }
     }
     if (!best) best = this.flowerGrab(robot);
@@ -1445,6 +1613,10 @@ export class Simulator {
   private updateCamera(): void {
     const cam = this.camera;
     if (!(cam instanceof THREE.PerspectiveCamera)) return;
+    if (Math.abs(cam.fov - this.config.fov) > 0.1) {
+      cam.fov = this.config.fov;
+      cam.updateProjectionMatrix();
+    }
     if (this.cameraName === "broadcast") {
       cam.up.set(0, 1, 0);
       cam.position.set(0, 2.45, -3.65);
@@ -1501,6 +1673,110 @@ export class Simulator {
     }
   }
 
+  private driverOf(alliance: Alliance): DriverMode {
+    return alliance === "red" ? this.config.redDriver : this.config.blueDriver;
+  }
+
+  private aiView(robot: Robot): AiInput {
+    const pos = robot.body.translation();
+    const tips = this.tips.filter((tip) => tip.alliance === robot.alliance).length;
+    return {
+      alliance: robot.alliance,
+      difficulty: robot.alliance === "red" ? this.config.redDifficulty : this.config.blueDifficulty,
+      phase: this.clock.phase,
+      teleopRemaining: this.clock.remaining,
+      flowerOpen: flowerWindowOpen(this.clock),
+      nectarLegal: nectarEntryLegal(tips, this.legalEntries[robot.alliance], this.clock, false),
+      lengthIn: this.config.lengthIn,
+      collects: this.config.collects,
+      robot: {
+        x: inches(pos.x),
+        z: inches(pos.z),
+        yaw: yawOf(robot.body.rotation()),
+        hood: robot.hood,
+        held: robot.held.map((piece) => ({ kind: piece.kind, alliance: piece.alliance })),
+      },
+      pieces: this.pieces
+        .filter((piece) => piece.mode === "free")
+        .map((piece) => {
+          const at = piece.body.translation();
+          return {
+            kind: piece.kind,
+            alliance: piece.alliance,
+            x: inches(at.x),
+            z: inches(at.z),
+            spill: this.simTime < piece.spillUntil,
+          };
+        }),
+      opponents: this.robots
+        .filter((other) => other !== robot && other.alliance !== robot.alliance)
+        .map((other) => {
+          const at = other.body.translation();
+          return { x: inches(at.x), z: inches(at.z) };
+        }),
+    };
+  }
+
+  private shapeAxis(value: number, dead: number, curve: number, invert: boolean): number {
+    const signed = invert ? -value : value;
+    const mag = Math.abs(signed);
+    if (mag < dead) return 0;
+    const span = Math.max(0.05, 1 - dead);
+    const normalized = Math.min(1, (mag - dead) / span);
+    return Math.sign(signed) * normalized ** Math.max(0.4, curve);
+  }
+
+  private connectedPads(): string[] {
+    if (!navigator.getGamepads) return [];
+    const names: string[] = [];
+    for (const pad of navigator.getGamepads()) {
+      if (pad) names.push(pad.id || `Pad ${pad.index + 1}`);
+    }
+    return names;
+  }
+
+  private allianceColor(alliance: Alliance): number {
+    if (this.config.colorblind) return alliance === "red" ? 0xe07a2f : 0x3a78ef;
+    const fallback = alliance === "red" ? 0xd64545 : 0x3a78ef;
+    return cssHex(alliance === "red" ? this.config.redColor : this.config.blueColor, fallback);
+  }
+
+  private paintRobots(): void {
+    for (const robot of this.robots) recolorRobot(robot.mesh, this.allianceColor(robot.alliance));
+  }
+
+  private applyLook(): void {
+    this.renderer.shadowMap.enabled = this.config.shadows;
+    const cap = this.config.vsync ? Math.min(window.devicePixelRatio || 1, 1.6) : 1;
+    this.renderer.setPixelRatio(cap);
+    if (this.camera instanceof THREE.PerspectiveCamera) {
+      this.camera.fov = this.config.fov;
+      this.camera.updateProjectionMatrix();
+    }
+    if (this.world) this.world.gravity = { x: 0, y: -this.config.gravity, z: 0 };
+    for (const robot of this.robots) {
+      robot.collider.setFriction(this.config.robotFriction);
+      robot.body.setLinearDamping(this.config.brakeDamping);
+    }
+    for (const piece of this.pieces) piece.body.collider(0)?.setRestitution(this.config.ballRestitution);
+    this.onResize();
+  }
+
+  private rebuildRenderer(): void {
+    this.renderer.dispose();
+    this.renderer = new THREE.WebGLRenderer({
+      canvas: this.canvas,
+      antialias: this.config.msaa,
+      powerPreference: "high-performance",
+      preserveDrawingBuffer: true,
+    });
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.applyLook();
+  }
+
   private readCameraKeys(): void {
     if (isTyping()) return;
     const map: Record<string, CameraName> = {
@@ -1516,6 +1792,7 @@ export class Simulator {
   }
 
   private onKeyDown = (event: KeyboardEvent): void => {
+    if (this.keyCapture) return;
     if (!this.keys.has(event.code)) this.edges.add(event.code);
     this.keys.add(event.code);
     if (isTyping()) return;
@@ -1597,16 +1874,78 @@ function isTyping(): boolean {
 }
 
 function sanitize(config: SimConfig): SimConfig {
+  const difficulty = (value: Difficulty): Difficulty => (value === "gentle" || value === "challenging" ? value : "standard");
   return {
     ...config,
     lengthIn: clamp(config.lengthIn, 12, ROBOT_MAX_IN),
     widthIn: clamp(config.widthIn, 12, ROBOT_MAX_IN),
     heightIn: clamp(config.heightIn, 8, ROBOT_MAX_IN),
     massKg: clamp(config.massKg, 4, 30),
-    maxSpeed: clamp(config.maxSpeed, 0.5, 2.6),
+    maxSpeed: clamp(config.maxSpeed, 0.4, 3.2),
     launchSpeed: clamp(config.launchSpeed, 3, 12),
     robotCount: config.robotCount === 4 ? 4 : 2,
+    redDriver: config.redDriver === "ai" ? "ai" : "human",
+    blueDriver: config.blueDriver === "human" ? "human" : "ai",
+    redDifficulty: difficulty(config.redDifficulty),
+    blueDifficulty: difficulty(config.blueDifficulty),
+    fov: clamp(config.fov, 30, 90),
+    turnRate: clamp(config.turnRate, 0.4, 6),
+    strafeEfficiency: clamp(config.strafeEfficiency, 0.35, 1),
+    accelScale: clamp(config.accelScale, 0.3, 2.5),
+    brakeDamping: clamp(config.brakeDamping, 0, 4),
+    gravity: clamp(config.gravity, 2, 20),
+    robotFriction: clamp(config.robotFriction, 0.05, 2),
+    ballRestitution: clamp(config.ballRestitution, 0, 0.95),
+    intakeEnds: config.intakeEnds === "both" ? "both" : "front",
+    collects: config.collects === "pollen" ? "pollen" : "both",
+    robotName: (config.robotName || "Robot").slice(0, 24),
+    redColor: normalizeHex(config.redColor, "#d64545"),
+    blueColor: normalizeHex(config.blueColor, "#3a78ef"),
+    master: clamp(config.master, 0, 1),
+    sfx: clamp(config.sfx, 0, 1),
+    crowd: clamp(config.crowd, 0, 1),
+    deadzone: clamp(config.deadzone, 0, 0.5),
+    turnDeadzone: clamp(config.turnDeadzone, 0, 0.5),
+    moveCurve: clamp(config.moveCurve, 0.5, 3),
+    turnCurve: clamp(config.turnCurve, 0.5, 3),
+    precisionScale: clamp(config.precisionScale, 0.15, 1),
+    motor: motorOf(config.motor),
+    wheelDiameterIn: clamp(config.wheelDiameterIn, 2, 6),
+    measFwd: clamp(config.measFwd, 0.4, 3.2),
+    measStrafe: clamp(config.measStrafe, 0.2, 3.2),
+    measAccel: clamp(config.measAccel, 0.15, 3),
+    measStop: clamp(config.measStop, 2, 48),
+    measTurn: clamp(config.measTurn, 0.4, 8),
+    train: config.train === "tank" ? "tank" : "mecanum",
+    mode: config.mode === "robot" ? "robot" : "field",
+    redKeys: mergeKeyMap(config.redKeys, RED_KEYS),
+    blueKeys: mergeKeyMap(config.blueKeys, BLUE_KEYS),
   };
+}
+
+function mergeKeyMap(value: KeyMap | undefined, fallback: KeyMap): KeyMap {
+  const next = { ...fallback };
+  if (!value) return next;
+  for (const key of Object.keys(fallback) as Array<keyof KeyMap>) {
+    const code = value[key];
+    if (typeof code === "string") next[key] = code;
+  }
+  return next;
+}
+
+function motorOf(value: MotorPreset): MotorPreset {
+  if (value === "hex20" || value === "hex40" || value === "neverest40" || value === "measured") return value;
+  return "stock";
+}
+
+function normalizeHex(value: string, fallback: string): string {
+  return /^#[0-9a-fA-F]{6}$/.test(value) ? value.toLowerCase() : fallback;
+}
+
+function cssHex(value: string, fallback: number): number {
+  const hex = normalizeHex(value, "");
+  if (!hex) return fallback;
+  return Number.parseInt(hex.slice(1), 16);
 }
 
 function addCellColliders(world: RAPIER.World, body: RAPIER.RigidBody, openingSign: number, centerZ: number): void {

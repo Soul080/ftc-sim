@@ -224,13 +224,21 @@ function makeCell(material: THREE.Material, openingSign: number, centerZ: number
   return cell;
 }
 
-export function makeRobot(alliance: Alliance, label: string, lengthIn: number, widthIn: number, heightIn: number): THREE.Group {
+export function makeRobot(
+  alliance: Alliance,
+  label: string,
+  lengthIn: number,
+  widthIn: number,
+  heightIn: number,
+  colorHex?: number,
+): THREE.Group {
   const group = new THREE.Group();
-  const color = alliance === "red" ? 0xd64545 : 0x3a78ef;
+  const color = colorHex ?? (alliance === "red" ? 0xd64545 : 0x3a78ef);
   const body = new THREE.Mesh(
     new THREE.BoxGeometry(m(widthIn), m(heightIn * 0.72), m(lengthIn)),
     new THREE.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0.08 }),
   );
+  body.name = "body";
   body.position.y = m(heightIn * 0.42);
   body.castShadow = true;
   body.receiveShadow = true;
@@ -301,4 +309,11 @@ export function disposeRobotTextures(group: THREE.Object3D): void {
     const texture = obj.userData.texture as THREE.Texture | undefined;
     texture?.dispose();
   });
+}
+
+export function recolorRobot(group: THREE.Group, colorHex: number): void {
+  const body = group.getObjectByName("body");
+  if (body instanceof THREE.Mesh && body.material instanceof THREE.MeshStandardMaterial) {
+    body.material.color.setHex(colorHex);
+  }
 }

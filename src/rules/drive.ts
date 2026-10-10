@@ -25,9 +25,10 @@ export function chassisCommand(
   train: DriveTrain,
   maxSpeed: number,
   maxYawRate: number,
+  strafeEfficiency = STRAFE_EFFICIENCY,
 ): ChassisCommand {
   const forward = clampAxis(stick.forward);
-  const strafe = train === "tank" ? 0 : clampAxis(stick.strafe) * STRAFE_EFFICIENCY;
+  const strafe = train === "tank" ? 0 : clampAxis(stick.strafe) * strafeEfficiency;
   const turn = clampAxis(stick.turn);
   if (mode === "field") {
     return {
