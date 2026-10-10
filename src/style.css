@@ -214,6 +214,14 @@ th { color: var(--muted); font-weight: 600; }
   background: radial-gradient(circle at 50% 40%, #243028, #121614 70%);
 }
 
+#boot[hidden],
+#board[hidden],
+#message[hidden],
+#panel[hidden],
+#panel-toggle[hidden] {
+  display: none !important;
+}
+
 .boot-card { width: min(440px, calc(100% - 32px)); }
 .boot-card h1 { font-size: 36px; }
 #boot.error #boot-status { color: #ffb4a8; }

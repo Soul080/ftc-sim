@@ -163,13 +163,13 @@ export const DEFAULT_CONFIG: SimConfig = {
 };
 
 export const SAMPLE_RED_AUTO = `forward 30
-turn 32
+turn -32
 hood 52
 launch 4
 `;
 
 export const SAMPLE_BLUE_AUTO = `forward 30
-turn 32
+turn -32
 hood 52
 launch 4
 `;
@@ -217,11 +217,16 @@ export class Simulator {
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+    this.renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      powerPreference: "high-performance",
+      preserveDrawingBuffer: true,
+    });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.6));
     this.renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
@@ -1280,7 +1285,7 @@ export class Simulator {
     for (const robot of this.robots) {
       if (robot.autoFouled) continue;
       const x = inches(robot.body.translation().x);
-      const crossed = robot.alliance === "red" ? x > 1 : x < -1;
+      const crossed = robot.alliance === "red" ? x < -1 : x > 1;
       if (!crossed) continue;
       for (const other of this.robots) {
         if (other.alliance === robot.alliance) continue;
@@ -1445,7 +1450,7 @@ export class Simulator {
       cam.position.set(0, 2.45, -3.65);
       cam.lookAt(0, 0.25, 0.15);
     } else if (this.cameraName === "top") {
-      cam.up.set(0, 0, -1);
+      cam.up.set(0, 0, 1);
       cam.position.set(0, 6.1, 0.01);
       cam.lookAt(0, 0, 0);
     } else if (this.cameraName === "red" || this.cameraName === "blue") {

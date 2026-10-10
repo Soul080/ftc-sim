@@ -74,46 +74,51 @@ export interface PieceSpawn {
   spawn: SpawnKind;
 }
 
+/**
+ * Axes, inches. +Z is the far wall, −Z is the audience. A driver looking from
+ * the audience toward the far wall has +X on the left, so red lives at +X
+ * (manual §9.2: red alliance area on the left from the primary audience).
+ */
 export const RED_GARDEN: Aabb = {
-  minX: -HALF_IN,
-  maxX: -HALF_IN + GARDEN_ALONG_IN,
+  minX: HALF_IN - GARDEN_ALONG_IN,
+  maxX: HALF_IN,
   minZ: HALF_IN - GARDEN_DEEP_IN,
   maxZ: HALF_IN,
 };
 
 export const BLUE_GARDEN: Aabb = {
-  minX: HALF_IN - GARDEN_ALONG_IN,
-  maxX: HALF_IN,
+  minX: -HALF_IN,
+  maxX: -HALF_IN + GARDEN_ALONG_IN,
   minZ: -HALF_IN,
   maxZ: -HALF_IN + GARDEN_DEEP_IN,
 };
 
 /** Tile A5, red wall. Rows count from the far side: row 1 is +Z. */
 export const RED_LOADING_ZONE: Aabb = {
-  minX: -HALF_IN,
-  maxX: -HALF_IN + LOADING_ZONE_DEEP_IN,
+  minX: HALF_IN - LOADING_ZONE_DEEP_IN,
+  maxX: HALF_IN,
   minZ: -HALF_IN + TILE_IN,
   maxZ: -HALF_IN + TILE_IN + LOADING_ZONE_ALONG_IN,
 };
 
 /** Tile F2, blue wall. 180° from the red zone (z 24 in to 48 in). */
 export const BLUE_LOADING_ZONE: Aabb = {
-  minX: HALF_IN - LOADING_ZONE_DEEP_IN,
-  maxX: HALF_IN,
+  minX: -HALF_IN,
+  maxX: -HALF_IN + LOADING_ZONE_DEEP_IN,
   minZ: HALF_IN - 2 * TILE_IN,
   maxZ: HALF_IN - TILE_IN,
 };
 
 export const RED_ALLIANCE_AREA: Aabb = {
-  minX: -HALF_IN - ALLIANCE_AREA_DEEP_IN,
-  maxX: -HALF_IN,
+  minX: HALF_IN,
+  maxX: HALF_IN + ALLIANCE_AREA_DEEP_IN,
   minZ: -ALLIANCE_AREA_WIDE_IN / 2,
   maxZ: ALLIANCE_AREA_WIDE_IN / 2,
 };
 
 export const BLUE_ALLIANCE_AREA: Aabb = {
-  minX: HALF_IN,
-  maxX: HALF_IN + ALLIANCE_AREA_DEEP_IN,
+  minX: -HALF_IN - ALLIANCE_AREA_DEEP_IN,
+  maxX: -HALF_IN,
   minZ: -ALLIANCE_AREA_WIDE_IN / 2,
   maxZ: ALLIANCE_AREA_WIDE_IN / 2,
 };
@@ -127,27 +132,27 @@ export const BLUE_ALLIANCE_AREA: Aabb = {
 export const FLOWERS: FlowerSpec[] = [
   { id: "far", x: 0, z: HALF_IN - FLOWER_INSET_IN, openX: 0, openZ: -1, wall: "far" },
   { id: "audience", x: 0, z: -HALF_IN + FLOWER_INSET_IN, openX: 0, openZ: 1, wall: "audience" },
-  { id: "red", x: -HALF_IN + FLOWER_INSET_IN, z: 0, openX: 1, openZ: 0, wall: "red" },
-  { id: "blue", x: HALF_IN - FLOWER_INSET_IN, z: 0, openX: -1, openZ: 0, wall: "blue" },
+  { id: "red", x: HALF_IN - FLOWER_INSET_IN, z: 0, openX: -1, openZ: 0, wall: "red" },
+  { id: "blue", x: -HALF_IN + FLOWER_INSET_IN, z: 0, openX: 1, openZ: 0, wall: "blue" },
 ];
 
 export const HIVES: HiveSpec[] = [
   {
     alliance: "red",
-    pivotX: -HIVE_PIVOT_SEPARATION_IN / 2,
+    pivotX: HIVE_PIVOT_SEPARATION_IN / 2,
     startTiltDeg: 28,
   },
   {
     alliance: "blue",
-    pivotX: HIVE_PIVOT_SEPARATION_IN / 2,
+    pivotX: -HIVE_PIVOT_SEPARATION_IN / 2,
     startTiltDeg: -28,
   },
 ];
 
 export function tileAabb(column: number, row: number): Aabb {
-  const x0 = -HALF_IN + column * TILE_IN;
+  const x1 = HALF_IN - column * TILE_IN;
   const z1 = HALF_IN - row * TILE_IN;
-  return { minX: x0, maxX: x0 + TILE_IN, minZ: z1 - TILE_IN, maxZ: z1 };
+  return { minX: x1 - TILE_IN, maxX: x1, minZ: z1 - TILE_IN, maxZ: z1 };
 }
 
 export function tileLabel(column: number, row: number): string {
@@ -168,17 +173,17 @@ export function robotStarts(count: 2 | 4, lengthIn: number): RobotStart[] {
     id: "red-1",
     alliance: "red",
     slot: 1,
-    x: -HALF_IN + lengthIn / 2 + gap,
-    z: 0,
-    yaw: Math.PI / 2,
+    x: HALF_IN - lengthIn / 2 - gap,
+    z: 34,
+    yaw: -Math.PI / 2,
   };
   const blue1: RobotStart = {
     id: "blue-1",
     alliance: "blue",
     slot: 1,
-    x: HALF_IN - lengthIn / 2 - gap,
-    z: 0,
-    yaw: -Math.PI / 2,
+    x: -HALF_IN + lengthIn / 2 + gap,
+    z: -34,
+    yaw: Math.PI / 2,
   };
   const starts = [red1, blue1];
   if (count === 4) {
@@ -187,7 +192,7 @@ export function robotStarts(count: 2 | 4, lengthIn: number): RobotStart[] {
         id: "red-2",
         alliance: "red",
         slot: 2,
-        x: -36,
+        x: 36,
         z: HALF_IN - lengthIn / 2 - gap,
         yaw: Math.PI,
       },
@@ -195,7 +200,7 @@ export function robotStarts(count: 2 | 4, lengthIn: number): RobotStart[] {
         id: "blue-2",
         alliance: "blue",
         slot: 2,
-        x: 36,
+        x: -36,
         z: -HALF_IN + lengthIn / 2 + gap,
         yaw: 0,
       },
@@ -334,8 +339,8 @@ export function pieceSpawns(robotCount: 2 | 4): PieceSpawn[] {
   }
 
   pieces.push(
-    ...lineOfPollen(-HALF_IN + radius + 0.2, HALF_IN - radius - 0.15, POLLEN_DIAMETER_IN, 0, POLLEN_PER_GARDEN, "pollen-garden-red"),
-    ...lineOfPollen(HALF_IN - radius - 0.2, -HALF_IN + radius + 0.15, -POLLEN_DIAMETER_IN, 0, POLLEN_PER_GARDEN, "pollen-garden-blue"),
+    ...lineOfPollen(HALF_IN - radius - 0.2, HALF_IN - radius - 0.15, -POLLEN_DIAMETER_IN, 0, POLLEN_PER_GARDEN, "pollen-garden-red"),
+    ...lineOfPollen(-HALF_IN + radius + 0.2, -HALF_IN + radius + 0.15, POLLEN_DIAMETER_IN, 0, POLLEN_PER_GARDEN, "pollen-garden-blue"),
   );
 
   const present = new Set(robotStarts(robotCount, 16).map((robot) => robot.id));

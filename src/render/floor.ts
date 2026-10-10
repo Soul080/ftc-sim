@@ -1,8 +1,6 @@
 import * as THREE from "three";
 import {
   FIELD_IN,
-  GARDEN_ALONG_IN,
-  GARDEN_DEEP_IN,
   HALF_IN,
   TILE_IN,
   m,
@@ -14,6 +12,7 @@ import {
   RED_ALLIANCE_AREA,
   RED_GARDEN,
   RED_LOADING_ZONE,
+  tileAabb,
   tileLabel,
   type Aabb,
 } from "../rules/layout";
@@ -45,16 +44,15 @@ export function paintFloor(canvas: HTMLCanvasElement): void {
 
   for (let column = 0; column < 6; column += 1) {
     for (let row = 0; row < 6; row += 1) {
-      const x = -HALF_IN + column * TILE_IN;
-      const z = HALF_IN - row * TILE_IN;
+      const tile = tileAabb(column, row);
       const shade = (column + row) % 2 === 0 ? "#7d827c" : "#737870";
       ctx.fillStyle = shade;
-      ctx.fillRect(toX(x), toY(z), TILE_IN * pxPerIn, TILE_IN * pxPerIn);
+      ctx.fillRect(toX(tile.minX), toY(tile.maxZ), TILE_IN * pxPerIn, TILE_IN * pxPerIn);
       ctx.fillStyle = "rgba(255,255,255,0.28)";
       ctx.font = "600 15px sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(tileLabel(column, row), toX(x + TILE_IN / 2), toY(z - TILE_IN / 2));
+      ctx.fillText(tileLabel(column, row), toX((tile.minX + tile.maxX) / 2), toY((tile.minZ + tile.maxZ) / 2));
     }
   }
 
@@ -93,13 +91,13 @@ export function paintFloor(canvas: HTMLCanvasElement): void {
 
   ctx.font = "600 13px sans-serif";
   ctx.fillStyle = "rgba(255,220,220,0.85)";
-  ctx.fillText("GARDEN", toX(-HALF_IN + GARDEN_ALONG_IN / 2), toY(HALF_IN - GARDEN_DEEP_IN - 3));
+  ctx.fillText("GARDEN", toX((RED_GARDEN.minX + RED_GARDEN.maxX) / 2), toY(RED_GARDEN.minZ - 3));
   ctx.fillStyle = "rgba(210,225,255,0.9)";
-  ctx.fillText("GARDEN", toX(HALF_IN - GARDEN_ALONG_IN / 2), toY(-HALF_IN + GARDEN_DEEP_IN + 3));
+  ctx.fillText("GARDEN", toX((BLUE_GARDEN.minX + BLUE_GARDEN.maxX) / 2), toY(BLUE_GARDEN.maxZ + 3));
   ctx.fillStyle = "rgba(255,220,220,0.85)";
-  ctx.fillText("LOAD", toX(-HALF_IN + 6), toY((RED_LOADING_ZONE.minZ + RED_LOADING_ZONE.maxZ) / 2));
+  ctx.fillText("LOAD", toX((RED_LOADING_ZONE.minX + RED_LOADING_ZONE.maxX) / 2), toY((RED_LOADING_ZONE.minZ + RED_LOADING_ZONE.maxZ) / 2));
   ctx.fillStyle = "rgba(210,225,255,0.9)";
-  ctx.fillText("LOAD", toX(HALF_IN - 6), toY((BLUE_LOADING_ZONE.minZ + BLUE_LOADING_ZONE.maxZ) / 2));
+  ctx.fillText("LOAD", toX((BLUE_LOADING_ZONE.minX + BLUE_LOADING_ZONE.maxX) / 2), toY((BLUE_LOADING_ZONE.minZ + BLUE_LOADING_ZONE.maxZ) / 2));
 }
 
 function fillZone(

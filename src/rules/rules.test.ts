@@ -97,7 +97,7 @@ describe("match clock", () => {
 
 describe("drive and shots", () => {
   it("maps field-centric sticks without using yaw", () => {
-    const command = chassisCommand({ forward: 1, strafe: -1, turn: 0 }, 1.2, "field", "mecanum", 2, 3);
+    const command = chassisCommand({ forward: 1, strafe: 1, turn: 0 }, 1.2, "field", "mecanum", 2, 3);
     expect(command.vz).toBeCloseTo(2);
     expect(command.vx).toBeCloseTo(-2 * 0.9);
     expect(command.yawRate).toBe(0);
@@ -179,19 +179,20 @@ describe("auto scripts", () => {
 });
 
 describe("field layout", () => {
-  it("is a 12 ft square of 24 in tiles with red on -X", () => {
+  it("is a 12 ft square of 24 in tiles with red on the audience's left", () => {
     expect(FIELD_IN).toBe(144);
     expect(tileLabel(0, 0)).toBe("A1");
     expect(tileLabel(5, 5)).toBe("F6");
     const a5 = tileAabb(0, 4);
-    expect(RED_LOADING_ZONE.minX).toBeCloseTo(-72);
+    expect(RED_LOADING_ZONE.maxX).toBeCloseTo(72);
     expect(RED_LOADING_ZONE.maxX - RED_LOADING_ZONE.minX).toBe(11);
     expect(RED_LOADING_ZONE.minZ).toBeCloseTo(a5.minZ);
     expect(RED_LOADING_ZONE.maxZ).toBeCloseTo(a5.maxZ);
+    expect(a5.maxX).toBeCloseTo(72);
     const f2 = tileAabb(5, 1);
     expect(BLUE_LOADING_ZONE.minZ).toBeCloseTo(f2.minZ);
     expect(BLUE_LOADING_ZONE.maxZ).toBeCloseTo(f2.maxZ);
-    expect(BLUE_LOADING_ZONE.maxX).toBeCloseTo(72);
+    expect(BLUE_LOADING_ZONE.minX).toBeCloseTo(-72);
   });
 
   it("puts gardens in opposite corners and mirrors the loading zones", () => {
@@ -217,10 +218,10 @@ describe("field layout", () => {
   it("starts robots on their wall, outside the loading zone", () => {
     const starts = robotStarts(2, 16);
     const red = starts[0]!;
-    expect(red.x).toBeLessThan(0);
+    expect(red.x).toBeGreaterThan(0);
     expect(touchingPerimeter({ ...red, lengthIn: 16, widthIn: 16 })).toBe(true);
     expect(inLoadingZone({ ...red, lengthIn: 16, widthIn: 16 }, "red")).toBe(false);
-    const parked = { x: -72 + 8, z: -36, lengthIn: 16, widthIn: 14, yaw: Math.PI / 2 };
+    const parked = { x: 72 - 8, z: -36, lengthIn: 16, widthIn: 14, yaw: -Math.PI / 2 };
     expect(inLoadingZone(parked, "red")).toBe(true);
     expect(footprintHitsZone(parked, BLUE_LOADING_ZONE)).toBe(false);
   });

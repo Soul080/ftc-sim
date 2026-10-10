@@ -68,7 +68,7 @@ Rules and layout numbers come from the 2026–2027 FTC Competition Manual and th
 | --- | --- | --- |
 | Season | FIRST season page, kickoff 12 Sep 2026 | BIOBUZZ, not DECODE |
 | Field, 12 ft × 12 ft, 36 tiles of 24 in | Manual §9.2 | 144 in inside the perimeter. Tile grid is centered on the field |
-| Tile letters and numbers | Setup guide §6 | A–F along X from red to blue. Rows 1–6 counted from the far wall |
+| Tile letters and numbers | Setup guide §6 and manual §9.2 | From the audience, red is on the left. That is +X in this sim, because a camera looking toward the far wall (+Z) has +X on its left. Columns A–F run red to blue. Rows 1–6 count from the far wall |
 | Walls | AndyMark am-0481 (12.3 in product height) and the 0.59 in tile | Wall colliders rise 11.7 in above the tiles. The manual does not print this height |
 | Loading zones | Manual §9.3 and setup guide §8.3 | 11 in deep, seam-to-seam 24 in. Red is tile A5, blue is tile F2 |
 | Gardens | Manual §9.3 | 23 in along the wall, 2 in deep. Red is tile A1 on the far wall, blue is tile F6 on the audience wall |

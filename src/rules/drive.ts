@@ -4,7 +4,7 @@ export type DriveTrain = "mecanum" | "tank";
 export interface Stick {
   /** +1 is forward. Field mode: +Z, toward the far wall. */
   forward: number;
-  /** +1 is right. Field mode: +X, toward blue. */
+  /** +1 is right. Field mode: toward blue, which is −X. */
   strafe: number;
   /** +1 increases yaw (toward +X when the robot faces far). */
   turn: number;
@@ -31,7 +31,7 @@ export function chassisCommand(
   const turn = clampAxis(stick.turn);
   if (mode === "field") {
     return {
-      vx: strafe * maxSpeed,
+      vx: -strafe * maxSpeed,
       vz: forward * maxSpeed,
       yawRate: turn * maxYawRate,
     };
