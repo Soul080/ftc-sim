@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Browser simulator for the 2026–2027 FIRST Tech Challenge game BIOBUZZ: mecanum physics, match clock, and live scoring."
+    />
+    <title>BIOBUZZ Field — FTC 2026–2027</title>
+  </head>
+  <body>
+    <canvas id="view" aria-label="BIOBUZZ field"></canvas>
+
+    <header id="board" hidden>
+      <section class="side red" aria-label="Red alliance">
+        <p class="kicker">Red</p>
+        <p class="points" id="red-points">0</p>
+        <p class="sub" id="red-rp">0 RP</p>
+        <p class="break" id="red-break"></p>
+      </section>
+      <section class="clock" aria-live="polite">
+        <p id="phase">READY</p>
+        <p id="time">2:30</p>
+        <p id="clock-meta">Practice</p>
+        <div class="row">
+          <button id="start" type="button">Start match</button>
+          <button id="reset" type="button" class="ghost">Reset</button>
+        </div>
+      </section>
+      <section class="side blue" aria-label="Blue alliance">
+        <p class="kicker">Blue</p>
+        <p class="points" id="blue-points">0</p>
+        <p class="sub" id="blue-rp">0 RP</p>
+        <p class="break" id="blue-break"></p>
+      </section>
+    </header>
+
+    <p id="message" hidden></p>
+
+    <button id="panel-toggle" type="button" hidden>Setup</button>
+
+    <aside id="panel" hidden>
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">FTC 2026–2027</p>
+          <h1>BIOBUZZ Field</h1>
+        </div>
+        <button id="panel-close" type="button" class="ghost icon" aria-label="Close setup">×</button>
+      </div>
+      <p class="lede">
+        Drive both alliances on one computer. Scoring follows Competition Manual Table 10-2. Size, mass, and robot count respawn the field.
+      </p>
+
+      <fieldset>
+        <legend>Drive</legend>
+        <div class="segment" role="group" aria-label="Drive train">
+          <button type="button" data-train="mecanum">Mecanum</button>
+          <button type="button" data-train="tank">Tank</button>
+        </div>
+        <div class="segment" role="group" aria-label="Drive orientation">
+          <button type="button" data-mode="field">Field-centric</button>
+          <button type="button" data-mode="robot">Robot-centric</button>
+        </div>
+        <label class="slider">Robots
+          <input id="robots" type="range" min="2" max="4" step="2" value="2" />
+          <span id="robots-out">2</span>
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Robot <span>R102, 18 in cube</span></legend>
+        <label class="slider">Length
+          <input id="length" type="range" min="12" max="18" step="0.5" value="16" />
+          <span id="length-out">16 in</span>
+        </label>
+        <label class="slider">Width
+          <input id="width" type="range" min="12" max="18" step="0.5" value="15" />
+          <span id="width-out">15 in</span>
+        </label>
+        <label class="slider">Height
+          <input id="height" type="range" min="8" max="18" step="0.5" value="13" />
+          <span id="height-out">13 in</span>
+        </label>
+        <label class="slider">Mass
+          <input id="mass" type="range" min="4" max="30" step="0.5" value="12" />
+          <span id="mass-out">12 kg</span>
+        </label>
+        <label class="slider">Top speed
+          <input id="speed" type="range" min="0.5" max="2.6" step="0.1" value="1.6" />
+          <span id="speed-out">1.6 m/s</span>
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Launch</legend>
+        <label class="slider">Speed
+          <input id="launch" type="range" min="3" max="12" step="0.1" value="6.6" />
+          <span id="launch-out">6.6 m/s</span>
+        </label>
+        <label class="check"><input id="drag" type="checkbox" checked /> Air drag on shots</label>
+        <label class="check"><input id="trajectory" type="checkbox" checked /> Trajectory preview</label>
+        <label class="check"><input id="aim" type="checkbox" /> Aim assist (hood still yours)</label>
+        <label class="check"><input id="mute" type="checkbox" /> Mute match sounds</label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Camera</legend>
+        <div class="cams">
+          <button type="button" data-camera="broadcast">Broadcast</button>
+          <button type="button" data-camera="top">Top</button>
+          <button type="button" data-camera="red">Red chase</button>
+          <button type="button" data-camera="blue">Blue chase</button>
+          <button type="button" data-camera="free">Orbit</button>
+        </div>
+        <p class="hint">Drag to orbit. Shift-drag or right-drag pans. Scroll zooms. C cycles. F1–F5 jump.</p>
+      </fieldset>
+
+      <fieldset>
+        <legend>Autonomous <span>robot-centric</span></legend>
+        <p class="hint">forward, back, strafe, turn, wait, intake, launch, deposit, eject, hood. Add a count to launch.</p>
+        <label>Red 1<textarea id="script-red-1" spellcheck="false"></textarea></label>
+        <label>Blue 1<textarea id="script-blue-1" spellcheck="false"></textarea></label>
+        <label class="extra-script">Red 2<textarea id="script-red-2" spellcheck="false"></textarea></label>
+        <label class="extra-script">Blue 2<textarea id="script-blue-2" spellcheck="false"></textarea></label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Keys</legend>
+        <table>
+          <thead><tr><th></th><th>Red 1</th><th>Blue 1</th></tr></thead>
+          <tbody>
+            <tr><td>Drive</td><td>W A S D</td><td>Arrows</td></tr>
+            <tr><td>Turn</td><td>Q / E</td><td>K / L</td></tr>
+            <tr><td>Intake</td><td>F</td><td>;</td></tr>
+            <tr><td>Launch</td><td>G</td><td>'</td></tr>
+            <tr><td>Deposit</td><td>V</td><td>/</td></tr>
+            <tr><td>Eject</td><td>X</td><td>.</td></tr>
+            <tr><td>Nectar</td><td>Z</td><td>B</td></tr>
+            <tr><td>Hood</td><td>1 / 2</td><td>9 / 0</td></tr>
+          </tbody>
+        </table>
+        <p class="hint">Slots 2 use gamepads. Left stick drives, right stick turns, RT intake, LT launch, RB deposit, LB eject, Y nectar, D-pad hood, Start begins the match.</p>
+      </fieldset>
+
+      <section class="tray" aria-label="Nectar and fouls">
+        <p id="nectar-line"></p>
+        <p id="held-line"></p>
+        <ul id="fouls"></ul>
+      </section>
+      <p class="cite">
+        Field and points from the 2026–2027 Competition Manual §§9–12 and the Event Field Setup Guide Rev 1.0. Estimates are listed in the README.
+      </p>
+    </aside>
+
+    <div id="boot">
+      <div class="boot-card">
+        <p class="eyebrow">FTC 2026–2027 · BIOBUZZ presented by RTX</p>
+        <h1>Field is coming up</h1>
+        <p id="boot-status">Loading the physics engine…</p>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
