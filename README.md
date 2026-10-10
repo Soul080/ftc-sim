@@ -21,7 +21,9 @@ npm run preview
 
 ## GitHub Pages
 
-`.github/workflows/pages.yml` builds on every push to `main` and deploys the `dist/` folder with GitHub Pages. In the repository settings, set **Pages → Build and deployment → Source** to **GitHub Actions**. The site uses a relative `base`, so it works as a project page or a user page.
+`.github/workflows/pages.yml` builds on every push to `main` and deploys the `dist/` folder with GitHub Actions. In the repository settings, set **Pages → Build and deployment → Source** to **GitHub Actions**.
+
+The production build sets Vite `base` to `/ftc-sim/`, so the live site is [https://soul080.github.io/ftc-sim/](https://soul080.github.io/ftc-sim/). `npm run dev` still serves the app at the server root.
 
 ## What you can do
 
