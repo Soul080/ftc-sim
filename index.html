@@ -26,6 +26,7 @@
         <p id="clock-meta">Practice</p>
         <div class="row">
           <button id="start" type="button">Start match</button>
+          <button id="ai-vs-ai" type="button">AI vs AI</button>
           <button id="reset" type="button" class="ghost">Reset</button>
         </div>
       </section>
@@ -196,7 +197,7 @@
         </label>
         <label class="check"><input id="drag" type="checkbox" checked /> Air drag on shots</label>
         <label class="check"><input id="trajectory" type="checkbox" checked /> Trajectory preview</label>
-        <label class="check"><input id="aim" type="checkbox" /> Aim assist (hood still yours)</label>
+        <label class="check"><input id="aim" type="checkbox" checked /> Auto-aim turret</label>
         <label class="check"><input id="mute" type="checkbox" /> Mute match sounds</label>
       </fieldset>
 
@@ -255,12 +256,25 @@
       </fieldset>
 
       <fieldset data-tab="auto" hidden>
-        <legend>Autonomous <span>robot-centric</span></legend>
-        <p class="hint">forward, back, strafe, turn, wait, intake, launch, deposit, eject, hood. Add a count to launch.</p>
+        <legend>Autonomous</legend>
+        <div class="segment">
+          <button id="record-red" type="button">Record red</button>
+          <button id="record-blue" type="button">Record blue</button>
+          <button id="record-stop" type="button" class="ghost">Save</button>
+        </div>
+        <label class="choice">Name
+          <input id="record-name" type="text" maxlength="32" placeholder="Lane auto" />
+        </label>
+        <div id="record-list"></div>
+        <p class="hint">Drive that robot for up to 30 seconds. Save it, then it replays in the next match’s auto. An AI driver ignores recordings. Turret left/right is [ ] on red and O / P on blue.</p>
+        <details>
+          <summary>Script editor</summary>
+        <p class="hint">forward, back, strafe, turn, wait, intake, launch, deposit, eject, hood. Used only when that alliance has no armed recording.</p>
         <label>Red 1<textarea id="script-red-1" spellcheck="false"></textarea></label>
         <label>Blue 1<textarea id="script-blue-1" spellcheck="false"></textarea></label>
         <label class="extra-script">Red 2<textarea id="script-red-2" spellcheck="false"></textarea></label>
         <label class="extra-script">Blue 2<textarea id="script-blue-2" spellcheck="false"></textarea></label>
+        </details>
       </fieldset>
 
       <fieldset data-tab="controls" hidden>

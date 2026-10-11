@@ -21,30 +21,59 @@ import {
 } from "../rules/constants";
 import type { FlowerSpec } from "../rules/layout";
 
-const pollenGeo = new THREE.SphereGeometry(m(POLLEN_DIAMETER_IN / 2), 20, 16);
-const nectarGeo = new THREE.SphereGeometry(m(NECTAR_DIAMETER_IN / 2), 20, 16);
+const pollenGeo = new THREE.SphereGeometry(m(POLLEN_DIAMETER_IN / 2), 24, 18);
+const nectarGeo = new THREE.SphereGeometry(m(NECTAR_DIAMETER_IN / 2), 24, 18);
+
+function ballTexture(fill: string, hole: string): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.fillStyle = fill;
+    ctx.fillRect(0, 0, 128, 128);
+    ctx.fillStyle = hole;
+    for (let y = 16; y < 128; y += 28) {
+      for (let x = 12 + ((y / 28) % 2) * 14; x < 128; x += 28) {
+        ctx.beginPath();
+        ctx.arc(x, y, 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.fillStyle = "rgba(255,255,255,0.35)";
+    ctx.beginPath();
+    ctx.ellipse(46, 40, 18, 10, -0.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
 
 const pollenMat = new THREE.MeshStandardMaterial({
-  color: 0xf0c43a,
-  roughness: 0.42,
-  metalness: 0.04,
+  color: 0xffe08a,
+  map: ballTexture("#f0c43a", "#8a5a12"),
+  roughness: 0.38,
+  metalness: 0.08,
   emissive: 0x3a2a08,
-  emissiveIntensity: 0.18,
+  emissiveIntensity: 0.22,
 });
 const nectarMats: Record<Alliance, THREE.MeshStandardMaterial> = {
   red: new THREE.MeshStandardMaterial({
-    color: 0xe23b3b,
-    roughness: 0.38,
-    metalness: 0.06,
+    color: 0xffb0b0,
+    map: ballTexture("#e23b3b", "#6d1218"),
+    roughness: 0.32,
+    metalness: 0.12,
     emissive: 0x3a0808,
-    emissiveIntensity: 0.15,
+    emissiveIntensity: 0.2,
   }),
   blue: new THREE.MeshStandardMaterial({
-    color: 0x2f74f0,
-    roughness: 0.38,
-    metalness: 0.06,
+    color: 0xc5d8ff,
+    map: ballTexture("#2f74f0", "#0c2c66"),
+    roughness: 0.32,
+    metalness: 0.12,
     emissive: 0x061838,
-    emissiveIntensity: 0.15,
+    emissiveIntensity: 0.2,
   }),
 };
 
@@ -234,74 +263,141 @@ export function makeRobot(
 ): THREE.Group {
   const group = new THREE.Group();
   const color = colorHex ?? (alliance === "red" ? 0xd64545 : 0x3a78ef);
-  const body = new THREE.Mesh(
-    new THREE.BoxGeometry(m(widthIn), m(heightIn * 0.72), m(lengthIn)),
-    new THREE.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0.08 }),
-  );
+  const shell = new THREE.MeshStandardMaterial({ color: 0x2a3034, roughness: 0.42, metalness: 0.35 });
+  const skirt = new THREE.MeshStandardMaterial({ color, roughness: 0.38, metalness: 0.18 });
+  skirt.name = "skirt";
+  const body = new THREE.Mesh(new THREE.BoxGeometry(m(widthIn * 0.72), m(heightIn * 0.46), m(lengthIn * 0.78)), shell);
   body.name = "body";
-  body.position.y = m(heightIn * 0.42);
+  body.position.y = m(heightIn * 0.48);
   body.castShadow = true;
   body.receiveShadow = true;
   group.add(body);
 
-  const plateCanvas = document.createElement("canvas");
-  plateCanvas.width = 256;
-  plateCanvas.height = 128;
-  const ctx = plateCanvas.getContext("2d");
-  if (ctx) {
-    ctx.fillStyle = alliance === "red" ? "#8d1d1d" : "#163e86";
-    ctx.fillRect(0, 0, 256, 128);
-    ctx.fillStyle = "#f7f7f2";
-    ctx.font = "700 64px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(label, 128, 64);
-  }
-  const plateTex = new THREE.CanvasTexture(plateCanvas);
-  plateTex.colorSpace = THREE.SRGBColorSpace;
-  const plate = new THREE.Mesh(
-    new THREE.BoxGeometry(m(widthIn * 0.7), m(0.35), m(lengthIn * 0.45)),
-    new THREE.MeshStandardMaterial({ map: plateTex, roughness: 0.6 }),
-  );
-  plate.position.y = m(heightIn * 0.78);
-  plate.castShadow = true;
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(m(widthIn), m(heightIn * 0.16), m(lengthIn)), skirt);
+  rail.name = "skirt";
+  rail.position.y = m(heightIn * 0.22);
+  rail.castShadow = true;
+  group.add(rail);
+
+  addBumper(group, "FRONT", m(widthIn * 0.86), m(2.1), m(0.55), 0, m(heightIn * 0.34), m(lengthIn / 2 + 0.15), 0xf6c445, "#1a1404");
+  addBumper(group, "BACK", m(widthIn * 0.86), m(2.1), m(0.55), 0, m(heightIn * 0.34), -m(lengthIn / 2 + 0.15), 0x1c1f22, "#f4f1ea");
+  addBumper(group, "LEFT", m(0.55), m(2.1), m(lengthIn * 0.62), -m(widthIn / 2 + 0.12), m(heightIn * 0.34), 0, color, "#f7f4ec");
+  addBumper(group, "RIGHT", m(0.55), m(2.1), m(lengthIn * 0.62), m(widthIn / 2 + 0.12), m(heightIn * 0.34), 0, color, "#f7f4ec");
+
+  const plate = labeledPlate(label, alliance === "red" ? "#8d1d1d" : "#163e86", true);
+  plate.position.y = m(heightIn * 0.74);
   group.add(plate);
-  plate.userData.texture = plateTex;
 
+  const turret = new THREE.Group();
+  turret.name = "turret";
+  turret.position.y = m(heightIn * 0.78);
+  const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(m(1.7), m(1.9), m(1.1), 16),
+    new THREE.MeshStandardMaterial({ color: 0x3a4146, roughness: 0.4, metalness: 0.55 }),
+  );
+  base.castShadow = true;
+  turret.add(base);
   const hood = new THREE.Mesh(
-    new THREE.BoxGeometry(m(widthIn * 0.34), m(2.2), m(3.2)),
-    new THREE.MeshStandardMaterial({ color: 0x22272b, roughness: 0.4, metalness: 0.4 }),
+    new THREE.BoxGeometry(m(widthIn * 0.28), m(1.5), m(lengthIn * 0.42)),
+    new THREE.MeshStandardMaterial({ color: 0x1c2124, roughness: 0.32, metalness: 0.62 }),
   );
-  hood.position.set(0, m(heightIn * 0.7), m(lengthIn * 0.28));
+  hood.position.set(0, m(1.1), m(lengthIn * 0.12));
   hood.name = "hood";
-  group.add(hood);
-
-  const nose = new THREE.Mesh(
-    new THREE.ConeGeometry(m(1.1), m(2.4), 4),
-    new THREE.MeshStandardMaterial({ color: 0xf4f1e6, roughness: 0.4 }),
+  hood.castShadow = true;
+  turret.add(hood);
+  const barrel = new THREE.Mesh(
+    new THREE.CylinderGeometry(m(0.55), m(0.7), m(lengthIn * 0.34), 12),
+    new THREE.MeshStandardMaterial({ color: 0xd9dde2, roughness: 0.25, metalness: 0.8 }),
   );
-  nose.rotation.x = Math.PI / 2;
-  nose.position.set(0, m(heightIn * 0.42), m(lengthIn / 2 + 0.6));
-  group.add(nose);
+  barrel.rotation.x = Math.PI / 2;
+  barrel.position.set(0, m(1.15), m(lengthIn * 0.32));
+  barrel.castShadow = true;
+  turret.add(barrel);
+  group.add(turret);
 
-  const wheelMat = new THREE.MeshStandardMaterial({ color: 0x1b1d1c, roughness: 0.7 });
-  const rollerMat = new THREE.MeshStandardMaterial({ color: 0xd8a31a, roughness: 0.5 });
-  const wheelGeo = new THREE.CylinderGeometry(m(1.9), m(1.9), m(1.5), 14);
-  const hx = m(widthIn / 2 - 1.6);
-  const hz = m(lengthIn / 2 - 2.1);
+  const lampMat = new THREE.MeshStandardMaterial({
+    color: 0xfff4d2,
+    emissive: 0xffe7a8,
+    emissiveIntensity: 2.2,
+    roughness: 0.2,
+  });
+  for (const x of [-m(widthIn * 0.22), m(widthIn * 0.22)]) {
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(m(0.55), 12, 10), lampMat);
+    lamp.position.set(x, m(heightIn * 0.5), m(lengthIn / 2 + 0.2));
+    group.add(lamp);
+  }
+
+  const wheelMat = new THREE.MeshStandardMaterial({ color: 0x141618, roughness: 0.72 });
+  const rollerMat = new THREE.MeshStandardMaterial({ color: 0xe2b034, roughness: 0.45, metalness: 0.15 });
+  const wheelGeo = new THREE.CylinderGeometry(m(1.9), m(1.9), m(1.55), 16);
+  const hx = m(widthIn / 2 - 1.5);
+  const hz = m(lengthIn / 2 - 2.2);
   for (const x of [-hx, hx]) {
     for (const z of [-hz, hz]) {
       const wheel = new THREE.Mesh(wheelGeo, wheelMat);
       wheel.rotation.z = Math.PI / 2;
       wheel.position.set(x, m(1.9), z);
-      wheel.name = "wheel";
-      const roller = new THREE.Mesh(new THREE.BoxGeometry(m(1.6), m(0.35), m(1.2)), rollerMat);
+      wheel.castShadow = true;
+      const roller = new THREE.Mesh(new THREE.BoxGeometry(m(1.7), m(0.38), m(1.15)), rollerMat);
       roller.position.y = m(1.9);
       wheel.add(roller);
       group.add(wheel);
     }
   }
   return group;
+}
+
+function addBumper(
+  group: THREE.Group,
+  text: string,
+  width: number,
+  height: number,
+  depth: number,
+  x: number,
+  y: number,
+  z: number,
+  color: number,
+  ink: string,
+): void {
+  const mesh = labeledPlate(text, `#${color.toString(16).padStart(6, "0")}`, false, ink);
+  mesh.scale.set(width / m(4), height / m(1.4), depth / m(0.35));
+  mesh.position.set(x, y, z);
+  if (Math.abs(x) > Math.abs(z)) mesh.rotation.y = Math.PI / 2;
+  group.add(mesh);
+}
+
+function labeledPlate(text: string, fill: string, arrow: boolean, ink = "#f7f4ec"): THREE.Mesh {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.fillStyle = fill;
+    ctx.fillRect(0, 0, 256, 128);
+    if (arrow) {
+      ctx.fillStyle = "#f6c445";
+      ctx.beginPath();
+      ctx.moveTo(128, 18);
+      ctx.lineTo(168, 58);
+      ctx.lineTo(88, 58);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.fillStyle = ink;
+    ctx.font = "700 42px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, 128, arrow ? 86 : 64);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(m(4), m(1.4), m(0.35)),
+    new THREE.MeshStandardMaterial({ map: texture, roughness: 0.55, metalness: 0.05 }),
+  );
+  mesh.castShadow = true;
+  mesh.userData.texture = texture;
+  return mesh;
 }
 
 export function disposeRobotTextures(group: THREE.Object3D): void {
@@ -312,8 +408,8 @@ export function disposeRobotTextures(group: THREE.Object3D): void {
 }
 
 export function recolorRobot(group: THREE.Group, colorHex: number): void {
-  const body = group.getObjectByName("body");
-  if (body instanceof THREE.Mesh && body.material instanceof THREE.MeshStandardMaterial) {
-    body.material.color.setHex(colorHex);
-  }
+  group.traverse((obj) => {
+    if (!(obj instanceof THREE.Mesh) || !(obj.material instanceof THREE.MeshStandardMaterial)) return;
+    if (obj.name === "body" || obj.name === "skirt" || obj.material.name === "skirt") obj.material.color.setHex(colorHex);
+  });
 }

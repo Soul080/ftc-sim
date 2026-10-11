@@ -2,7 +2,9 @@ import "./style.css";
 import { KEY_ACTIONS, type KeyMap } from "./rules/controls";
 import type { DriveMode, DriveTrain } from "./rules/drive";
 import { MOTOR_FREE_RPM, presetSpeed, strafePenaltyPercent, turnDegPerSec } from "./rules/garage";
+import type { AutoRecording } from "./rules/recording";
 import type { AllianceScore } from "./rules/scoring";
+import type { Alliance } from "./rules/constants";
 import {
   DEFAULT_CONFIG,
   Simulator,
@@ -15,6 +17,7 @@ import {
 import type { Difficulty } from "./rules/ai";
 
 const STORAGE_KEY = "biobuzz-sim-config";
+const AUTO_KEY = "biobuzz-sim-autos";
 
 interface SavedState {
   config: Partial<SimConfig>;
@@ -35,6 +38,7 @@ if (saved?.scripts) {
     if (typeof saved.scripts[id] === "string") sim.setScript(id, saved.scripts[id]);
   }
 }
+loadAutos();
 
 declare global {
   interface Window {
@@ -45,6 +49,9 @@ declare global {
       camera: (name: CameraName) => void;
       hud: () => HudModel;
       config: () => SimConfig;
+      advance: (seconds: number) => void;
+      poses: () => ReturnType<Simulator["poses"]>;
+      setSpeed: (multiplier: number) => void;
     };
   }
 }
@@ -54,9 +61,12 @@ window.__SIM__ = {
   start: () => sim.startMatch(),
   reset: () => sim.resetField(),
   camera: (name) => sim.setCamera(name),
-  hud: () => sim.hud(),
-  config: () => sim.getConfig(),
-};
+      hud: () => sim.hud(),
+      config: () => sim.getConfig(),
+      advance: (seconds: number) => sim.advance(seconds),
+      poses: () => sim.poses(),
+      setSpeed: (multiplier: number) => sim.setSpeed(multiplier),
+    };
 
 bindPanel();
 buildBinds();
@@ -85,7 +95,26 @@ void sim
 
 function bindPanel(): void {
   document.querySelector("#start")?.addEventListener("click", () => sim.startMatch());
+  document.querySelector("#ai-vs-ai")?.addEventListener("click", () => {
+    sim.setConfig({
+      redDriver: "ai",
+      blueDriver: "ai",
+      redDifficulty: "standard",
+      blueDifficulty: "standard",
+    });
+    persist();
+    syncPanel();
+    sim.startMatch();
+  });
   document.querySelector("#reset")?.addEventListener("click", () => sim.resetField());
+  document.querySelector("#record-red")?.addEventListener("click", () => beginRecord("red"));
+  document.querySelector("#record-blue")?.addEventListener("click", () => beginRecord("blue"));
+  document.querySelector("#record-stop")?.addEventListener("click", () => {
+    const name = document.querySelector<HTMLInputElement>("#record-name")?.value ?? "";
+    sim.finishRecording(name);
+    persistAutos();
+    syncRecords();
+  });
   document.querySelector("#panel-toggle")?.addEventListener("click", () => {
     document.querySelector("#panel")?.classList.toggle("open");
   });
@@ -405,6 +434,7 @@ function syncPanel(): void {
     node.toggleAttribute("hidden", config.robotCount !== 4);
   }
   document.body.classList.toggle("hide-hud", !config.showHud);
+  syncRecords();
 }
 
 function derivedLine(config: SimConfig): string {
@@ -505,7 +535,11 @@ function paintHud(hud: HudModel): void {
   text("phase", hud.phaseLabel);
   text("time", hud.time);
   const drivers = `red ${config.redDriver} · blue ${config.blueDriver}`;
-  text("clock-meta", `${hud.camera} · ${hud.mode} · ${hud.train} · ${drivers}`);
+  if (hud.recording) {
+    text("clock-meta", `Recording ${hud.recording.alliance} ${hud.recording.elapsed.toFixed(1)}s / 30`);
+  } else {
+    text("clock-meta", `${hud.camera} · ${hud.mode} · ${hud.train} · ${drivers}`);
+  }
   text("red-points", String(hud.score.red.matchPoints));
   text("blue-points", String(hud.score.blue.matchPoints));
   text("red-rp", rpLine(hud.score.red));
@@ -607,6 +641,73 @@ function loadState(): SavedState | null {
     return parsed;
   } catch {
     return null;
+  }
+}
+
+function beginRecord(alliance: Alliance): void {
+  sim.setConfig(alliance === "red" ? { redDriver: "human" } : { blueDriver: "human" });
+  sim.startRecording(alliance);
+  persist();
+  syncPanel();
+}
+
+function syncRecords(): void {
+  const root = document.getElementById("record-list");
+  if (!root) return;
+  root.replaceChildren();
+  for (const rec of sim.getRecordings()) {
+    const row = document.createElement("div");
+    row.className = "record-row";
+    const armed = sim.armedRecordingId(rec.alliance) === rec.id;
+    const label = document.createElement("span");
+    label.textContent = `${rec.alliance} · ${rec.name} · ${rec.duration.toFixed(1)}s${armed ? " · armed" : ""}`;
+    const use = document.createElement("button");
+    use.type = "button";
+    use.textContent = armed ? "Armed" : "Use";
+    use.addEventListener("click", () => {
+      sim.armRecording(rec.alliance, armed ? null : rec.id);
+      persistAutos();
+      syncRecords();
+    });
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "ghost";
+    del.textContent = "Delete";
+    del.addEventListener("click", () => {
+      sim.deleteRecording(rec.id);
+      persistAutos();
+      syncRecords();
+    });
+    row.append(label, use, del);
+    root.append(row);
+  }
+}
+
+function persistAutos(): void {
+  const state = {
+    recordings: sim.getRecordings(),
+    armed: { red: sim.armedRecordingId("red"), blue: sim.armedRecordingId("blue") },
+  };
+  try {
+    localStorage.setItem(AUTO_KEY, JSON.stringify(state));
+  } catch {
+    /* private mode */
+  }
+}
+
+function loadAutos(): void {
+  try {
+    const raw = localStorage.getItem(AUTO_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as { recordings?: AutoRecording[]; armed?: { red?: string | null; blue?: string | null } };
+    const recordings = (parsed.recordings ?? []).filter(
+      (item) => item && Array.isArray(item.frames) && (item.alliance === "red" || item.alliance === "blue"),
+    );
+    sim.setRecordings(recordings);
+    if (parsed.armed?.red) sim.armRecording("red", parsed.armed.red);
+    if (parsed.armed?.blue) sim.armRecording("blue", parsed.armed.blue);
+  } catch {
+    /* ignore broken saves */
   }
 }
 

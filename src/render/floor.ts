@@ -45,9 +45,16 @@ export function paintFloor(canvas: HTMLCanvasElement): void {
   for (let column = 0; column < 6; column += 1) {
     for (let row = 0; row < 6; row += 1) {
       const tile = tileAabb(column, row);
-      const shade = (column + row) % 2 === 0 ? "#7d827c" : "#737870";
-      ctx.fillStyle = shade;
+      const foam = (column + row) % 2 === 0 ? [132, 138, 128] : [112, 118, 110];
+      const wash = column <= 1 ? [28, 8, 8] : column >= 4 ? [6, 12, 28] : [0, 0, 0];
+      ctx.fillStyle = `rgb(${foam[0] + wash[0]}, ${foam[1] + wash[1]}, ${foam[2] + wash[2]})`;
       ctx.fillRect(toX(tile.minX), toY(tile.maxZ), TILE_IN * pxPerIn, TILE_IN * pxPerIn);
+      for (let n = 0; n < 18; n += 1) {
+        const px = toX(tile.minX) + ((n * 47 + column * 13) % (TILE_IN * pxPerIn - 4));
+        const py = toY(tile.maxZ) + ((n * 29 + row * 17) % (TILE_IN * pxPerIn - 4));
+        ctx.fillStyle = n % 2 === 0 ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)";
+        ctx.fillRect(px, py, 3, 2);
+      }
       ctx.fillStyle = "rgba(255,255,255,0.28)";
       ctx.font = "600 15px sans-serif";
       ctx.textAlign = "center";
