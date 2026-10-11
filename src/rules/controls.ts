@@ -15,6 +15,8 @@ export interface KeyMap {
   nectar: string;
   precision: string;
   fieldCentric: string;
+  turretLeft: string;
+  turretRight: string;
 }
 
 export const RED_KEYS: KeyMap = {
@@ -33,6 +35,8 @@ export const RED_KEYS: KeyMap = {
   nectar: "KeyZ",
   precision: "ShiftLeft",
   fieldCentric: "KeyT",
+  turretLeft: "BracketLeft",
+  turretRight: "BracketRight",
 };
 
 export const BLUE_KEYS: KeyMap = {
@@ -51,6 +55,8 @@ export const BLUE_KEYS: KeyMap = {
   nectar: "KeyB",
   precision: "ShiftRight",
   fieldCentric: "",
+  turretLeft: "KeyO",
+  turretRight: "KeyP",
 };
 
 export const KEY_ACTIONS: Array<{ id: keyof KeyMap; label: string }> = [
@@ -69,4 +75,6 @@ export const KEY_ACTIONS: Array<{ id: keyof KeyMap; label: string }> = [
   { id: "nectar", label: "Enter nectar" },
   { id: "precision", label: "Precision (hold)" },
   { id: "fieldCentric", label: "Field / robot" },
+  { id: "turretLeft", label: "Turret left" },
+  { id: "turretRight", label: "Turret right" },
 ];

@@ -194,6 +194,10 @@ legend span { font-weight: 500; color: var(--muted); }
 .bind-grid { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: center; margin-top: 8px; font-size: 12px; }
 .bind-grid button { padding: 3px 8px; min-width: 76px; }
 #panel h2 { margin: 14px 0 0; font-size: 13px; }
+#ai-vs-ai { background: #3d3420; border-color: rgba(240, 180, 41, 0.45); }
+details summary { cursor: pointer; margin-top: 12px; font-size: 13px; font-weight: 700; }
+.record-row { display: flex; gap: 6px; align-items: center; margin-top: 8px; font-size: 12px; }
+.record-row span { flex: 1; }
 #ai-line {
   position: fixed;
   left: 14px;

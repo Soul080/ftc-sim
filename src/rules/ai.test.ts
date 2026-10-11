@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aimYaw, decide, gardenSpot, shootingSpot, type AiInput, type AiRobot } from "./ai";
+import { aimYaw, decide, gardenSpot, hiveMouthInches, shootingSpot, type AiInput, type AiRobot } from "./ai";
 import { FLOWERS } from "./layout";
 import { presetSpeed, strafePenaltyPercent, turnDegPerSec, wheelSpeedMps } from "./garage";
 
@@ -9,6 +9,7 @@ function robot(partial: Partial<AiRobot> = {}): AiRobot {
     z: 0,
     yaw: 0,
     hood: 50,
+    turretYaw: 0,
     held: [],
     ...partial,
   };
@@ -24,6 +25,9 @@ function input(partial: Partial<AiInput> = {}): AiInput {
     nectarLegal: false,
     lengthIn: 16,
     collects: "both",
+    intakeEnds: "front",
+    hiveTilt: (-28 * Math.PI) / 180,
+    stuck: false,
     robot: robot(),
     pieces: [],
     opponents: [],
@@ -87,31 +91,50 @@ describe("match AI", () => {
     expect(cmd.launch).toBe(false);
   });
 
-  it("launches a full hopper once it is lined up on the hive", () => {
+  it("stands in front of the cell that is actually raised", () => {
+    const audience = shootingSpot("red", (28 * Math.PI) / 180);
+    const far = shootingSpot("red", (-28 * Math.PI) / 180);
+    expect(audience.z).toBeLessThan(-40);
+    expect(audience.aimZ).toBeLessThan(0);
+    expect(far.z).toBeGreaterThan(40);
+    expect(far.aimZ).toBeGreaterThan(0);
+  });
+
+  it("launches a full hopper when the turret is on the hive, even if the chassis faces elsewhere", () => {
     const spot = shootingSpot("blue");
-    const yaw = aimYaw(spot.x, spot.z, spot.aimX, spot.aimZ);
+    const mouth = hiveMouthInches("blue", (-28 * Math.PI) / 180);
+    const turretYaw = aimYaw(spot.x, spot.z, mouth.x, mouth.z);
+    const held = [0, 1, 2, 3].map(() => ({ kind: "pollen" as const, alliance: null }));
     const cmd = decide(
       input({
         robot: robot({
           x: spot.x,
           z: spot.z,
-          yaw,
-          held: [
-            { kind: "pollen", alliance: null },
-            { kind: "pollen", alliance: null },
-            { kind: "pollen", alliance: null },
-            { kind: "pollen", alliance: null },
-          ],
+          yaw: 0,
+          turretYaw,
+          held,
         }),
       }),
     );
     expect(cmd.launch).toBe(true);
     expect(cmd.deposit).toBe(false);
     expect(cmd.intake).toBe(false);
-    expect(cmd.hood).toBe(52);
-    expect(Math.abs(cmd.forward)).toBeLessThan(0.2);
-    expect(Math.abs(cmd.strafe)).toBeLessThan(0.2);
+    expect(cmd.forward).toBe(0);
+    expect(cmd.strafe).toBe(0);
     expect(cmd.status).toMatch(/Shooting/);
+
+    const missed = decide(
+      input({
+        robot: robot({
+          x: spot.x,
+          z: spot.z,
+          yaw: turretYaw,
+          turretYaw: turretYaw + Math.PI,
+          held,
+        }),
+      }),
+    );
+    expect(missed.launch).toBe(false);
   });
 
   it("does not deposit nectar before the flower window", () => {

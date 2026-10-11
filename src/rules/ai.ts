@@ -1,5 +1,9 @@
-import { CELL_CENTER_ARM_IN, MAX_CONTROLLED, type Alliance } from "./constants";
-import { FLOWERS, HIVES, garden, loadingZone, type FlowerSpec } from "./layout";
+import { MAX_CONTROLLED, type Alliance } from "./constants";
+import { reachesIntake, type IntakeEnds } from "./intake";
+import { FLOWERS, garden, loadingZone, type FlowerSpec } from "./layout";
+import { aimYaw, hiveMouthInches } from "./turret";
+
+export { aimYaw, hiveMouthInches };
 
 export type Difficulty = "gentle" | "standard" | "challenging";
 export type AiPhase = "setup" | "auto" | "transition" | "teleop" | "ended";
@@ -24,6 +28,8 @@ export interface AiRobot {
   /** Radians. 0 faces +Z. Positive yaw turns toward +X. */
   yaw: number;
   hood: number;
+  /** World yaw of the launcher, independent of the chassis. */
+  turretYaw: number;
   held: AiHeld[];
 }
 
@@ -39,6 +45,11 @@ export interface AiInput {
   lengthIn: number;
   /** "pollen" refuses nectar. "both" accepts own nectar. */
   collects: "pollen" | "both";
+  intakeEnds: IntakeEnds;
+  /** Current hive angle. Positive raises the audience cell. */
+  hiveTilt: number;
+  /** The chassis has been commanded to move and has not. */
+  stuck: boolean;
   robot: AiRobot;
   pieces: AiPiece[];
   opponents: Array<{ x: number; z: number }>;
@@ -62,22 +73,24 @@ export interface AiCommand {
 const GAIN: Record<Difficulty, number> = { gentle: 0.55, standard: 0.85, challenging: 1 };
 /** Park when this many teleop seconds remain. */
 const PARK_AT: Record<Difficulty, number> = { gentle: 28, standard: 20, challenging: 12 };
-const AIM_SLOP: Record<Difficulty, number> = { gentle: 0.42, standard: 0.24, challenging: 0.14 };
+const AIM_SLOP: Record<Difficulty, number> = { gentle: 0.5, standard: 0.28, challenging: 0.16 };
 
-export function aimYaw(x: number, z: number, aimX: number, aimZ: number): number {
-  return Math.atan2(aimX - x, aimZ - z);
-}
-
-/** Stand on the alliance side of the hive and shoot into the cell that starts up. */
-export function shootingSpot(alliance: Alliance): { x: number; z: number; aimX: number; aimZ: number } {
-  const hive = HIVES.find((item) => item.alliance === alliance);
-  const aimX = hive?.pivotX ?? 0;
-  const aimZ = alliance === "red" ? -CELL_CENTER_ARM_IN : CELL_CENTER_ARM_IN;
+/**
+ * A clear patch in front of the raised cell. The shot has to travel along the
+ * opening; a spot off to the side hits the cell wall and never scores.
+ */
+export function shootingSpot(alliance: Alliance, tiltRad?: number): { x: number; z: number; aimX: number; aimZ: number } {
+  const tilt = tiltRad ?? (alliance === "red" ? (28 * Math.PI) / 180 : (-28 * Math.PI) / 180);
+  const mouth = hiveMouthInches(alliance, tilt);
+  // Far enough in front of the opening that the arc clears the cell lip.
+  // A closer spot hits the underside of the hive and the ball falls back.
+  const stand = 40;
+  const lateral = alliance === "red" ? 6 : -6;
   return {
-    x: alliance === "red" ? 38 : -38,
-    z: alliance === "red" ? -28 : 28,
-    aimX,
-    aimZ,
+    x: mouth.x + lateral,
+    z: mouth.z >= 0 ? mouth.z + stand : mouth.z - stand,
+    aimX: mouth.x,
+    aimZ: mouth.z,
   };
 }
 
@@ -95,6 +108,12 @@ export function decide(input: AiInput): AiCommand {
   if (input.phase === "transition" || input.phase === "ended" || input.phase === "setup") return idle;
 
   const gain = GAIN[input.difficulty];
+  if (input.stuck) {
+    // +strafe is −X. Drive toward the middle of the field, off whichever wall is closest.
+    const strafe = input.robot.x > 0 ? gain : -gain;
+    const forward = input.robot.z > 0 ? -gain : gain;
+    return { ...empty("Blocked backing off"), strafe, forward };
+  }
   if (input.robot.held.some((piece) => piece.kind === "nectar" && piece.alliance && piece.alliance !== input.alliance)) {
     return { ...empty("Ejecting opponent nectar"), eject: true };
   }
@@ -161,16 +180,17 @@ function goFlower(input: AiInput, gain: number): AiCommand {
 }
 
 function goCollect(input: AiInput, piece: AiPiece, gain: number): AiCommand {
-  const mouth = mouthOf(input);
-  const dx = piece.x - mouth.x;
-  const dz = piece.z - mouth.z;
-  const dist = hypot(dx, dz);
-  const fx = Math.sin(input.robot.yaw);
-  const fz = Math.cos(input.robot.yaw);
-  const ahead = dx * fx + dz * fz;
-  const facing = dist < 12 && ahead > -1;
-  const cmd = steer(input, piece.x, piece.z, piece.x, piece.z, gain, facing ? 2 : 6, facing ? "Collecting" : "Travelling to a piece");
-  cmd.intake = facing;
+  const reached = reachesIntake(
+    input.intakeEnds,
+    input.robot.x,
+    input.robot.z,
+    input.robot.yaw,
+    input.lengthIn,
+    piece.x,
+    piece.z,
+  );
+  const cmd = steer(input, piece.x, piece.z, piece.x, piece.z, gain, reached ? 3 : 6, reached ? "Collecting" : "Travelling to a piece");
+  cmd.intake = reached;
   cmd.launch = false;
   cmd.deposit = false;
   cmd.hood = null;
@@ -191,18 +211,28 @@ function goGarden(input: AiInput, gain: number): AiCommand {
 }
 
 function goHive(input: AiInput, gain: number): AiCommand {
-  const spot = shootingSpot(input.alliance);
-  const dist = hypot(input.robot.x - spot.x, input.robot.z - spot.z);
-  const yawErr = Math.abs(wrap(aimYaw(input.robot.x, input.robot.z, spot.aimX, spot.aimZ) - input.robot.yaw));
-  const slop = AIM_SLOP[input.difficulty];
-  const aligned = dist < 8 && yawErr < slop;
-  const status = aligned ? "Shooting" : dist < 14 ? "Aiming" : "Travelling to shooting spot";
-  const cmd = steer(input, spot.x, spot.z, spot.aimX, spot.aimZ, gain, aligned ? 3 : 7, status);
-  cmd.launch = aligned && input.robot.held.length > 0;
+  const spot = shootingSpot(input.alliance, input.hiveTilt);
+  const mouth = hiveMouthInches(input.alliance, input.hiveTilt);
+  const distSpot = hypot(input.robot.x - spot.x, input.robot.z - spot.z);
+  const distMouth = hypot(input.robot.x - mouth.x, input.robot.z - mouth.z);
+  const turretErr = Math.abs(wrap(aimYaw(input.robot.x, input.robot.z, mouth.x, mouth.z) - input.robot.turretYaw));
+  const settled = distSpot < 8;
+  const aligned = turretErr < AIM_SLOP[input.difficulty];
+  const inRange = distMouth > 18 && distMouth < 78;
+  const status = settled && aligned ? "Shooting" : settled ? "Aiming" : "Travelling to shooting spot";
+  const faceX = settled ? input.robot.x + Math.sin(input.robot.yaw) : spot.x;
+  const faceZ = settled ? input.robot.z + Math.cos(input.robot.yaw) : spot.z;
+  const cmd = steer(input, spot.x, spot.z, faceX, faceZ, gain, settled ? 2 : 7, status);
+  if (settled) {
+    cmd.forward = 0;
+    cmd.strafe = 0;
+    cmd.turn = 0;
+  }
+  cmd.launch = settled && inRange && aligned && input.robot.held.length > 0;
   cmd.intake = false;
   cmd.deposit = false;
   cmd.eject = false;
-  cmd.hood = 52;
+  cmd.hood = null;
   return cmd;
 }
 
@@ -216,6 +246,13 @@ function steer(
   stopIn: number,
   status: string,
 ): AiCommand {
+  const gate = railGate(input.robot.x, input.robot.z, tx, tz);
+  if (gate && hypot(input.robot.x - gate.x, input.robot.z - gate.z) > 10) {
+    tx = gate.x;
+    tz = gate.z;
+    faceX = gate.x;
+    faceZ = gate.z;
+  }
   let dx = tx - input.robot.x;
   let dz = tz - input.robot.z;
   if (input.phase === "auto") {
@@ -262,6 +299,7 @@ function nearestPiece(input: AiInput): AiPiece | null {
   let bestD = Infinity;
   for (const piece of input.pieces) {
     if (piece.spill) continue;
+    if (pinnedInCorner(piece)) continue;
     if (!compatible(input, piece)) continue;
     if (!onOwnHalf(input, piece.x)) continue;
     const dist = hypot(input.robot.x - piece.x, input.robot.z - piece.z);
@@ -292,7 +330,7 @@ function gardenBetter(input: AiInput): boolean {
   // Only cash a garden when the robot is already on that tape. A full hopper
   // is worth a hive shot, even if the garden happens to be closer to the start.
   if (gardenDist > 12) return false;
-  const hive = shootingSpot(input.alliance);
+  const hive = shootingSpot(input.alliance, input.hiveTilt);
   return gardenDist + 8 < hypot(input.robot.x - hive.x, input.robot.z - hive.z);
 }
 
@@ -325,13 +363,6 @@ function inLoading(input: AiInput): boolean {
   return pointIn(zone, input.robot.x, input.robot.z);
 }
 
-function mouthOf(input: AiInput): { x: number; z: number } {
-  return {
-    x: input.robot.x + Math.sin(input.robot.yaw) * (input.lengthIn / 2),
-    z: input.robot.z + Math.cos(input.robot.yaw) * (input.lengthIn / 2),
-  };
-}
-
 function pointIn(zone: { minX: number; maxX: number; minZ: number; maxZ: number }, x: number, z: number): boolean {
   return x >= zone.minX && x <= zone.maxX && z >= zone.minZ && z <= zone.maxZ;
 }
@@ -349,6 +380,23 @@ function empty(status: string): AiCommand {
     nectar: false,
     status,
   };
+}
+
+/** Hive base rails block |x| < 30 at z = ±19.5. Steer out to a gate instead of into the rail. */
+function railGate(x1: number, z1: number, x2: number, z2: number): { x: number; z: number } | null {
+  for (const railZ of [-19.5, 19.5]) {
+    if ((z1 - railZ) * (z2 - railZ) >= 0) continue;
+    const denom = z2 - z1;
+    if (Math.abs(denom) < 0.01) continue;
+    const x = x1 + ((x2 - x1) * (railZ - z1)) / denom;
+    if (Math.abs(x) > 30) continue;
+    return { x: x >= 0 ? 38 : -38, z: railZ > 0 ? 8 : -8 };
+  }
+  return null;
+}
+
+function pinnedInCorner(piece: AiPiece): boolean {
+  return Math.abs(piece.x) > 62 && Math.abs(piece.z) > 62;
 }
 
 function hypot(x: number, z: number): number {

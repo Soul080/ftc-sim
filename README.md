@@ -121,7 +121,7 @@ Tests in `src/rules/rules.test.ts` lock the point table, the loading-zone and ga
 | Field-centric toggle | The red “Field / robot” binding (T by default). |
 | Fire (hold to empty), spit one out, intake, stop intake | Launch, eject, and intake bindings. Releasing intake stops it. |
 | Hood up/down, more/less launcher power | Hood keys, and the launch-speed slider. |
-| Aim assist, recalibrate turret | Aim assist pulls the shot toward that alliance’s hive mouth. There is no separate turret; the launcher yaws with the chassis, so recalibrate is not a control. |
+| Aim assist, recalibrate turret | Look → Auto-aim turret. The hood yaws on its own and tracks that alliance’s raised hive cell. Turn it off and `[` / `]` (red) or O / P (blue), or the D-pad, swing it by hand. |
 | Start match, reset field, skip auto | Start match, Reset, and an empty auto script (or AI, which replaces the script). |
 | Pause / menu | The setup panel. There is no separate pause; Reset returns to practice. |
 | Save situation, retry scenario | Not ported. Reset reloads the standard setup. |
@@ -133,12 +133,12 @@ Tests in `src/rules/rules.test.ts` lock the point table, the loading-zone and ga
 | Motors: REV HD Hex 20:1, 40:1, NeveRest 40 | Those three presets, plus stock and measured. Speed is free rpm × wheel circumference. |
 | Derived acceleration, force, braking, strafe penalty, turn rate | The robot tab prints in/s, strafe penalty, turn °/s, and 0–top time. Force-per-wheel is not shown; acceleration still scales with mass. |
 | Calibration: forward, strafe, accel time, stopping distance, full-spin time, weight | Measured-profile sliders, plus mass. “Apply measurements” copies them into speed, strafe efficiency, turn rate, and braking. |
-| Intake: front only, or front and rear | Robot → Intake. The rear mouth does not change speed or the 4-piece limit. |
+| Intake: front only, or front and rear | Robot → Intake. Double-sided picks up from the front mouth and the back mouth. The 4-piece limit is unchanged. |
 | Collects: pollen only, or pollen and nectar | Robot → Collects. Opponent nectar is still refused (G408). |
 | Robot name, colors | Name, red body color, blue body color. |
 | Import GLB / glTF / STL, scale, tip, turn, roll | Not ported. Pandara limits import to its downloadable build, and collision there stays an 18 in cube. Here the cube is the robot you sized. |
-| Wheels, turret, alliance bumpers drawn on the model | Wheels, hood, nose, and an alliance plate are drawn on the cube. |
-| Autonomous: record inputs, replay, test, delete, run no auto, named routines | Auto tab scripts (`forward`, `turn`, `launch`, and the rest). Clear the box for no auto. Playback is not a recording of your sticks, and there is no routine library. An AI driver ignores the script and plays the match itself. |
+| Wheels, turret, alliance bumpers drawn on the model | Mecanum rollers, an independent turret and barrel, headlights, a front chevron, and FRONT / BACK / LEFT / RIGHT bumpers. Front is yellow, back is dark, the sides wear the alliance color. |
+| Autonomous: record inputs, replay, test, delete, run no auto, named routines | Auto → Record red / Record blue. Drive up to 30 seconds in practice, name the routine, and it is armed for that alliance’s next auto. Several routines stay in `localStorage`. Use disarms one, Delete removes it. The old text scripts are still in the collapsed Script editor. An AI driver ignores both and plays the match itself. |
 | Opponent behaviors: collect and score, stationary, route, defend, back and forth, stop at end | One match brain instead of scenario bots. It collects and scores, and it stops to park at endgame. Stationary, waypoint routes, and defend-an-area are not separate modes. |
 | Collect-and-score: nearest pollen, up to 4, then a shooting spot, then fire | Same order, plus own nectar to a flower after 1:00, garden ejects when the tape is closer than the hive, and a loading-zone nectar when the entry is legal. |
 | Difficulty: Gentle, Standard, Challenging, and a pace that is a share of full stick | Same three names. Gentle uses 55% stick and parks with 28 s left, Standard 85% and 20 s, Challenging full stick and 12 s. |
@@ -146,7 +146,7 @@ Tests in `src/rules/rules.test.ts` lock the point table, the loading-zone and ga
 | Do not model pinning | The AI steers away inside 16 in and will not chase across the midline in auto. |
 | Settings save automatically, reset to defaults | `localStorage`, and Look → Reset settings. |
 
-Pandara’s AI is a practice opponent with waypoints and a defend radius. This one plays a scored match. It does not pin on purpose, and it will not cross the midline during auto.
+Pandara’s AI is a practice opponent with waypoints and a defend radius. This one plays a scored match. It does not pin on purpose, and it will not cross the midline during auto. **AI vs AI** in the header puts both alliances on Standard and starts the match. Each robot drives to a spot in front of its raised cell, shoots with the turret, collects another hopper, and parks in its loading zone at endgame.
 
 ## Known gaps
 

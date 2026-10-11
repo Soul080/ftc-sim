@@ -1,10 +1,15 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
-import { predictArc, shotVelocity, type Vec3 } from "../rules/ballistics";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { aimHood, predictArc, shotVelocity, type Vec3 } from "../rules/ballistics";
 import { decide, type AiInput, type Difficulty } from "../rules/ai";
 import { clockDisplay, flowerWindowOpen, nectarEntryLegal, tickClock, autoClock, setupClock, type Clock, type Phase } from "../rules/clock";
 import { BLUE_KEYS, RED_KEYS, type KeyMap } from "../rules/controls";
 import {
+  AUTO_SEC,
   BALL_DRAG_K,
   CELL_CENTER_ARM_IN,
   CELL_DEPTH_IN,
@@ -35,6 +40,9 @@ import {
   type PieceKind,
 } from "../rules/constants";
 import { chassisCommand, type DriveMode, type DriveTrain, type Stick } from "../rules/drive";
+import { reachesIntake } from "../rules/intake";
+import { appendFrame, frameAt, AUTO_RECORD_SEC, type AutoRecording, type DriveFrame } from "../rules/recording";
+import { hiveMouthInches, stepTurret } from "../rules/turret";
 import { createRuntime, parseScript, stepAuto, type AutoRuntime } from "../rules/auto";
 import {
   FLOWERS,
@@ -137,6 +145,8 @@ export interface HudModel {
   practice: boolean;
   ai: Record<Alliance, string>;
   pads: string[];
+  recording: { alliance: Alliance; elapsed: number } | null;
+  tips: Record<Alliance, number>;
 }
 
 interface Robot {
@@ -162,6 +172,11 @@ interface Robot {
   pinWarn: number;
   aiStatus: string;
   aiNectar: boolean;
+  turretYaw: number;
+  stuckUntil: number;
+  stuckMark: { x: number; z: number; t: number };
+  hoodAt: { x: number; z: number; t: number } | null;
+  lastMoving: boolean;
 }
 
 interface Piece {
@@ -211,7 +226,7 @@ export const DEFAULT_CONFIG: SimConfig = {
   launchSpeed: 6.6,
   drag: true,
   trajectory: true,
-  aimAssist: false,
+  aimAssist: true,
   muted: false,
   redDriver: "human",
   blueDriver: "ai",
@@ -305,6 +320,11 @@ export class Simulator {
   private simTime = 0;
   private nectarEdge: Record<Alliance, boolean> = { red: false, blue: false };
   private keyCapture = false;
+  private composer: EffectComposer | null = null;
+  private speed = 1;
+  private recordings: AutoRecording[] = [];
+  private armed: Record<Alliance, string | null> = { red: null, blue: null };
+  private autoCapture: { alliance: Alliance; elapsed: number; acc: number; frames: DriveFrame[]; mode: DriveMode } | null = null;
   private orbit = { theta: 0.55, phi: 1.05, radius: 4.4, target: new THREE.Vector3(0, 0.2, 0) };
   private dragging = false;
   private dragButton = 0;
@@ -353,6 +373,7 @@ export class Simulator {
     this.buildStatic();
     this.spawnActors();
     this.ready = true;
+    this.setupComposer();
     this.applyLook();
   }
 
@@ -373,7 +394,8 @@ export class Simulator {
     this.readCameraKeys();
     this.acc += dt;
     let steps = 0;
-    while (this.acc >= STEP && steps < 4) {
+    const budget = Math.min(48, Math.max(4, Math.round(4 * this.speed)));
+    while (this.acc >= STEP && steps < budget) {
       this.fixed(STEP);
       this.acc -= STEP;
       steps += 1;
@@ -381,10 +403,12 @@ export class Simulator {
     this.syncMeshes();
     this.updateCamera();
     this.updateTrails();
-    this.renderer.render(this.scene, this.camera);
+    if (this.composer) this.composer.render();
+    else this.renderer.render(this.scene, this.camera);
   }
 
   startMatch(): void {
+    if (this.autoCapture) this.finishRecording(`${this.autoCapture.alliance} auto`);
     this.announcer.unlock();
     this.resetField();
     this.clock = autoClock();
@@ -495,7 +519,95 @@ export class Simulator {
         blue: this.robots.find((robot) => robot.alliance === "blue" && robot.slot === 1)?.aiStatus ?? "",
       },
       pads: this.connectedPads(),
+      recording: this.autoCapture ? { alliance: this.autoCapture.alliance, elapsed: this.autoCapture.elapsed } : null,
+      tips: {
+        red: this.tips.filter((tip) => tip.alliance === "red").length,
+        blue: this.tips.filter((tip) => tip.alliance === "blue").length,
+      },
     };
+  }
+
+  /** Run the match clock and physics without drawing. Used to play a full match in tests. */
+  advance(seconds: number): void {
+    const steps = Math.max(0, Math.round(seconds / STEP));
+    for (let i = 0; i < steps; i += 1) this.fixed(STEP);
+    this.syncMeshes();
+  }
+
+  setSpeed(multiplier: number): void {
+    this.speed = clamp(multiplier, 1, 8);
+  }
+
+  poses(): Record<Alliance, { x: number; z: number; held: number; status: string }> {
+    const pose = { x: 0, z: 0, held: 0, status: "" };
+    const out: Record<Alliance, { x: number; z: number; held: number; status: string }> = {
+      red: { ...pose },
+      blue: { ...pose },
+    };
+    for (const robot of this.robots) {
+      if (robot.slot !== 1) continue;
+      const pos = robot.body.translation();
+      out[robot.alliance] = {
+        x: inches(pos.x),
+        z: inches(pos.z),
+        held: robot.held.length,
+        status: robot.aiStatus,
+      };
+    }
+    return out;
+  }
+
+  setRecordings(list: AutoRecording[]): void {
+    this.recordings = list.map((item) => ({ ...item, frames: item.frames.map((frame) => ({ ...frame })) }));
+  }
+
+  getRecordings(): AutoRecording[] {
+    return this.recordings.map((item) => ({ ...item, frames: item.frames.map((frame) => ({ ...frame })) }));
+  }
+
+  armRecording(alliance: Alliance, id: string | null): void {
+    this.armed[alliance] = id && this.recordings.some((item) => item.id === id) ? id : null;
+  }
+
+  armedRecordingId(alliance: Alliance): string | null {
+    return this.armed[alliance];
+  }
+
+  startRecording(alliance: Alliance): void {
+    const robot = this.robots.find((item) => item.alliance === alliance && item.slot === 1);
+    this.autoCapture = {
+      alliance,
+      elapsed: 0,
+      acc: 0,
+      frames: [],
+      mode: this.config.mode,
+    };
+    if (robot) robot.aiStatus = "Recording";
+    this.message = `Recording ${alliance} auto. Drive for up to 30 seconds.`;
+  }
+
+  finishRecording(name: string): AutoRecording | null {
+    const capture = this.autoCapture;
+    this.autoCapture = null;
+    if (!capture) return null;
+    const recording: AutoRecording = {
+      id: `auto-${Date.now().toString(36)}`,
+      name: (name || `${capture.alliance} auto`).slice(0, 32),
+      alliance: capture.alliance,
+      mode: capture.mode,
+      duration: Math.min(AUTO_RECORD_SEC, capture.elapsed),
+      frames: capture.frames,
+    };
+    this.recordings = [...this.recordings, recording];
+    this.armed[capture.alliance] = recording.id;
+    this.message = `Saved “${recording.name}” for ${capture.alliance}. It plays in the next auto.`;
+    return recording;
+  }
+
+  deleteRecording(id: string): void {
+    this.recordings = this.recordings.filter((item) => item.id !== id);
+    if (this.armed.red === id) this.armed.red = null;
+    if (this.armed.blue === id) this.armed.blue = null;
   }
 
   private currentScore(): MatchScore {
@@ -515,9 +627,9 @@ export class Simulator {
   private buildStatic(): void {
     const world = this.world;
     if (!world) return;
-    this.scene.add(new THREE.HemisphereLight(0xd7e4f2, 0x3d463c, 0.72));
-    const sun = new THREE.DirectionalLight(0xfff4e0, 1.35);
-    sun.position.set(4.5, 9.5, 3.2);
+    this.scene.add(new THREE.HemisphereLight(0xc9d8ea, 0x243028, 0.62));
+    const sun = new THREE.DirectionalLight(0xfff1d6, 2.35);
+    sun.position.set(5.5, 12.5, -6.5);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     const shadow = sun.shadow.camera;
@@ -527,8 +639,15 @@ export class Simulator {
     shadow.bottom = -3.2;
     shadow.near = 1;
     shadow.far = 20;
-    sun.shadow.bias = -0.0004;
+    sun.shadow.bias = -0.00035;
+    sun.shadow.normalBias = 0.02;
     this.scene.add(sun);
+    const fill = new THREE.DirectionalLight(0x9eb6d8, 0.55);
+    fill.position.set(-6, 7, 4);
+    this.scene.add(fill);
+    const rim = new THREE.DirectionalLight(0xffe0b0, 0.35);
+    rim.position.set(0, 4, 8);
+    this.scene.add(rim);
     this.scene.add(makeFloorMesh());
     this.scene.add(makeWalls());
     this.scene.add(makeFrame());
@@ -697,7 +816,10 @@ export class Simulator {
       const collider = world.createCollider(
         RAPIER.ColliderDesc.cuboid(m(this.config.widthIn / 2), m(this.config.heightIn / 2), m(this.config.lengthIn / 2))
           .setMass(this.config.massKg)
-          .setFriction(this.config.robotFriction)
+          // Min against the floor, and a low value, so Coulomb friction cannot
+          // cancel the commanded chassis speed inside one solver step.
+          .setFriction(Math.min(0.08, this.config.robotFriction))
+          .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min)
           .setRestitution(0.02),
         body,
       );
@@ -734,6 +856,11 @@ export class Simulator {
         pinWarn: 0,
         aiStatus: "",
         aiNectar: false,
+        turretYaw: yaw,
+        stuckUntil: 0,
+        stuckMark: { x: m(start.x), z: m(start.z), t: 0 },
+        hoodAt: null,
+        lastMoving: false,
       });
     }
     for (const spawn of pieceSpawns(this.config.robotCount)) this.spawnPiece(spawn);
@@ -864,16 +991,19 @@ export class Simulator {
       let deposit = false;
       let eject = false;
       let driveMode: DriveMode = this.clock.phase === "auto" ? "robot" : this.config.mode;
+      let turretAxis = 0;
       const aiOn = robot.slot === 1 && this.driverOf(robot.alliance) === "ai";
-      const scripted = !aiOn && this.clock.phase === "auto";
+      const replay = !aiOn && this.clock.phase === "auto" ? this.replayFrame(robot) : null;
+      const scripted = !aiOn && !replay && this.clock.phase === "auto";
       const frozen = this.clock.phase === "transition" || this.clock.phase === "ended";
-      if (!aiOn && !scripted && !frozen) {
+      if (!aiOn && !scripted && !replay && !frozen) {
         const human = this.humanStick(robot, pads[index] ?? null);
         stick = human.stick;
         launch = human.launch;
         intake = human.intake;
         deposit = human.deposit;
         eject = human.eject;
+        turretAxis = human.turret;
       }
       if (this.clock.phase === "transition" || this.clock.phase === "ended") {
         stick = { forward: 0, strafe: 0, turn: 0 };
@@ -895,6 +1025,17 @@ export class Simulator {
         robot.aiNectar = cmd.nectar;
         robot.aiStatus = cmd.status;
         driveMode = "field";
+        if (cmd.launch || cmd.status === "Aiming" || cmd.status === "Shooting") robot.hood = this.hoodFor(robot);
+      } else if (replay) {
+        stick = { forward: replay.forward, strafe: replay.strafe, turn: replay.turn };
+        launch = replay.launch;
+        intake = replay.intake;
+        deposit = replay.deposit;
+        eject = replay.eject;
+        robot.hood = replay.hood;
+        if (!this.config.aimAssist) robot.turretYaw = replay.turret;
+        driveMode = replay.mode;
+        robot.aiStatus = "Replaying auto";
       } else if (aiOn) {
         stick = { forward: 0, strafe: 0, turn: 0 };
         launch = false;
@@ -915,6 +1056,9 @@ export class Simulator {
       } else {
         robot.aiStatus = "";
       }
+      this.noteStuck(robot, stick);
+      this.slewTurret(robot, dt, aiOn, turretAxis, deposit);
+      this.sampleRecording(robot, dt, stick, launch, intake, deposit, eject);
       this.applyDrive(robot, stick, dt, driveMode);
       if (launch) this.launch(robot, false);
       if (deposit) this.launch(robot, true);
@@ -942,6 +1086,7 @@ export class Simulator {
     intake: boolean;
     deposit: boolean;
     eject: boolean;
+    turret: number;
   } {
     const fromPad = pad ? this.padStick(pad) : null;
     const padLive = fromPad && (Math.hypot(fromPad.stick.forward, fromPad.stick.strafe, fromPad.stick.turn) > 0.2 || fromPad.launch || fromPad.intake || fromPad.deposit || fromPad.eject);
@@ -950,7 +1095,7 @@ export class Simulator {
       if (fromPad.hood !== 0) robot.hood = clamp(robot.hood + fromPad.hood * STEP * 70, 25, 75);
       return fromPad;
     }
-    if (robot.slot !== 1) return { stick: { forward: 0, strafe: 0, turn: 0 }, launch: false, intake: false, deposit: false, eject: false };
+    if (robot.slot !== 1) return { stick: { forward: 0, strafe: 0, turn: 0 }, launch: false, intake: false, deposit: false, eject: false, turret: 0 };
     const typing = isTyping();
     const down = (code: string) => !typing && this.keys.has(code);
     const keys = robot.alliance === "red" ? this.config.redKeys : this.config.blueKeys;
@@ -967,6 +1112,7 @@ export class Simulator {
       intake: down(keys.intake),
       deposit: down(keys.deposit),
       eject: down(keys.eject),
+      turret: axis(down(keys.turretLeft), down(keys.turretRight)),
     };
   }
 
@@ -978,6 +1124,7 @@ export class Simulator {
     eject: boolean;
     nectarEdge: boolean;
     hood: number;
+    turret: number;
   } {
     const button = (index: number) => pad.buttons[index]?.pressed ?? false;
     const tagged = pad as Gamepad & { __prevY?: boolean; __prevStart?: boolean };
@@ -1000,6 +1147,7 @@ export class Simulator {
       eject: button(4),
       nectarEdge: y && !previous,
       hood: (button(12) ? 1 : 0) - (button(13) ? 1 : 0),
+      turret: (button(15) ? 1 : 0) - (button(14) ? 1 : 0),
     };
   }
 
@@ -1046,9 +1194,11 @@ export class Simulator {
     const base = this.config.motor === "measured" ? this.config.maxSpeed / Math.max(0.2, this.config.measAccel) : 4.4 * (12 / mass);
     const aMax = base * this.config.accelScale;
     robot.body.setLinearDamping(this.config.brakeDamping);
+    // Floor friction cancels a small impulse before the robot ever reaches the
+    // commanded speed. Set the horizontal velocity directly, still rate-limited.
     const dvx = clamp(command.vx - velocity.x, -aMax * dt, aMax * dt);
     const dvz = clamp(command.vz - velocity.z, -aMax * dt, aMax * dt);
-    robot.body.applyImpulse({ x: dvx * mass, y: 0, z: dvz * mass }, true);
+    robot.body.setLinvel({ x: velocity.x + dvx, y: velocity.y, z: velocity.z + dvz }, true);
     const ang = robot.body.angvel();
     const dYaw = clamp(command.yawRate - ang.y, -12 * dt, 12 * dt);
     robot.body.setAngvel({ x: 0, y: ang.y + dYaw, z: 0 }, true);
@@ -1058,7 +1208,7 @@ export class Simulator {
     if (robot.cooldown > 0 || robot.held.length === 0) return;
     const piece = robot.held[0];
     if (!piece) return;
-    const yaw = yawOf(robot.body.rotation());
+    const yaw = robot.turretYaw;
     const muzzle = this.muzzle(robot, yaw);
     if (deposit) {
       const flower = this.nearestFlower(robot, yaw);
@@ -1075,12 +1225,7 @@ export class Simulator {
       }, muzzle, true);
       return;
     }
-    let shotYaw = yaw;
-    if (this.config.aimAssist) {
-      const mouth = this.mouth(robot.alliance);
-      shotYaw = yaw + wrapPi(Math.atan2(mouth.x - muzzle.x, mouth.z - muzzle.z) - yaw) * 0.72;
-    }
-    const velocity = shotVelocity(shotYaw, robot.hood, this.config.launchSpeed);
+    const velocity = shotVelocity(yaw, robot.hood, this.config.launchSpeed);
     this.announcer.spin();
     this.release(robot, piece, velocity, muzzle, robot.hood >= 35);
   }
@@ -1127,27 +1272,17 @@ export class Simulator {
     }
     const yaw = yawOf(robot.body.rotation());
     const pos = robot.body.translation();
-    const fx = Math.sin(yaw);
-    const fz = Math.cos(yaw);
-    const mouths = [{ fx, fz, x: pos.x + fx * m(this.config.lengthIn / 2), z: pos.z + fz * m(this.config.lengthIn / 2) }];
-    if (this.config.intakeEnds === "both") {
-      mouths.push({ fx: -fx, fz: -fz, x: pos.x - fx * m(this.config.lengthIn / 2), z: pos.z - fz * m(this.config.lengthIn / 2) });
-    }
     let best: Piece | null = null;
-    let bestD = m(11);
-    for (const mouth of mouths) {
-      for (const piece of this.pieces) {
-        if (piece.mode !== "free" || this.simTime < piece.spillUntil) continue;
-        if (this.config.collects === "pollen" && piece.kind !== "pollen") continue;
-        const at = piece.body.translation();
-        const dx = at.x - mouth.x;
-        const dz = at.z - mouth.z;
-        const dist = Math.hypot(dx, dz);
-        const ahead = dx * mouth.fx + dz * mouth.fz;
-        if (dist < bestD && ahead > -0.05) {
-          best = piece;
-          bestD = dist;
-        }
+    let bestD = Infinity;
+    for (const piece of this.pieces) {
+      if (piece.mode !== "free" || this.simTime < piece.spillUntil) continue;
+      if (this.config.collects === "pollen" && piece.kind !== "pollen") continue;
+      const at = piece.body.translation();
+      if (!reachesIntake(this.config.intakeEnds, inches(pos.x), inches(pos.z), yaw, this.config.lengthIn, inches(at.x), inches(at.z))) continue;
+      const dist = Math.hypot(at.x - pos.x, at.z - pos.z);
+      if (dist < bestD) {
+        best = piece;
+        bestD = dist;
       }
     }
     if (!best) best = this.flowerGrab(robot);
@@ -1327,7 +1462,8 @@ export class Simulator {
         }
         piece.insideFor += dt;
         const speed = Math.hypot(piece.body.linvel().x, piece.body.linvel().y, piece.body.linvel().z);
-        if (piece.insideFor > 0.08 || speed < 1.1) this.capture(hive, piece, up, false);
+        const aimed = piece.scoringAttempt && piece.launcher === hive.alliance;
+        if (aimed || piece.insideFor > 0.08 || speed < 1.1) this.capture(hive, piece, up, false);
       }
     }
   }
@@ -1551,10 +1687,18 @@ export class Simulator {
 
   private muzzle(robot: Robot, yaw: number): Vec3 {
     const pos = robot.body.translation();
+    const chassis = yawOf(robot.body.rotation());
+    const delta = wrapPi(yaw - chassis);
+    const lx = Math.sin(delta);
+    const lz = Math.cos(delta);
+    const exitW = Math.abs(lx) > 1e-3 ? this.config.widthIn / 2 / Math.abs(lx) : 1e6;
+    const exitL = Math.abs(lz) > 1e-3 ? this.config.lengthIn / 2 / Math.abs(lz) : 1e6;
+    // Clear the sizing box even when the turret points at a corner, and sit above it.
+    const dist = m(Math.min(exitW, exitL) + 2.4);
     return {
-      x: pos.x + Math.sin(yaw) * m(this.config.lengthIn / 2 + 0.4),
-      y: m(this.config.heightIn * 0.82),
-      z: pos.z + Math.cos(yaw) * m(this.config.lengthIn / 2 + 0.4),
+      x: pos.x + Math.sin(yaw) * dist,
+      y: m(this.config.heightIn) + 0.05,
+      z: pos.z + Math.cos(yaw) * dist,
     };
   }
 
@@ -1579,17 +1723,91 @@ export class Simulator {
 
   private mouth(alliance: Alliance): Vec3 {
     const hive = this.hives.find((item) => item.alliance === alliance);
-    if (!hive) return { x: 0, y: 1, z: 0 };
-    const which = hive.angle >= 0 ? "audience" : "far";
-    const sign = which === "audience" ? -1 : 1;
-    const localZ = m(sign * (CELL_CENTER_ARM_IN + CELL_DEPTH_IN / 2));
-    const c = Math.cos(hive.angle);
-    const s = Math.sin(hive.angle);
-    return {
-      x: hive.pivotX,
-      y: m(HIVE_PIVOT_HEIGHT_IN) + m(1) * c - localZ * s,
-      z: m(1) * s + localZ * c,
-    };
+    const mouth = hiveMouthInches(alliance, hive?.angle ?? 0);
+    return { x: m(mouth.x), y: m(mouth.y), z: m(mouth.z) };
+  }
+
+  private hoodFor(robot: Robot): number {
+    const pos = robot.body.translation();
+    const solved = robot.hoodAt;
+    if (solved && this.simTime - solved.t < 0.2 && Math.hypot(pos.x - solved.x, pos.z - solved.z) < m(3)) return robot.hood;
+    const mouth = this.mouth(robot.alliance);
+    const muzzle = this.muzzle(robot, robot.turretYaw);
+    const distance = Math.hypot(mouth.x - muzzle.x, mouth.z - muzzle.z);
+    const rise = mouth.y - muzzle.y;
+    robot.hoodAt = { x: pos.x, z: pos.z, t: this.simTime };
+    return aimHood(Math.max(0.2, distance), rise, this.config.launchSpeed, this.config.drag ? BALL_DRAG_K : 0);
+  }
+
+  private slewTurret(robot: Robot, dt: number, aiOn: boolean, turretAxis: number, deposit: boolean): void {
+    const pos = robot.body.translation();
+    if (deposit) {
+      const flower = this.nearestFlower(robot, robot.turretYaw);
+      if (flower) {
+        robot.turretYaw = Math.atan2(m(flower.x) - pos.x, m(flower.z) - pos.z);
+        return;
+      }
+    }
+    if (aiOn || this.config.aimAssist) {
+      const mouth = this.mouth(robot.alliance);
+      robot.turretYaw = stepTurret(robot.turretYaw, Math.atan2(mouth.x - pos.x, mouth.z - pos.z), 5.2, dt);
+      return;
+    }
+    if (turretAxis !== 0) robot.turretYaw = wrapPi(robot.turretYaw + turretAxis * 2.4 * dt);
+  }
+
+  private noteStuck(robot: Robot, stick: Stick): void {
+    const pos = robot.body.translation();
+    const moving = Math.hypot(stick.forward, stick.strafe) > 0.35;
+    if (this.simTime < robot.stuckUntil) {
+      robot.lastMoving = moving;
+      return;
+    }
+    if (this.simTime - robot.stuckMark.t >= 1.1) {
+      const moved = Math.hypot(pos.x - robot.stuckMark.x, pos.z - robot.stuckMark.z);
+      if (robot.lastMoving && moved < m(0.6)) robot.stuckUntil = this.simTime + 0.45;
+      robot.stuckMark = { x: pos.x, z: pos.z, t: this.simTime };
+    }
+    robot.lastMoving = moving;
+  }
+
+  private replayFrame(robot: Robot): (DriveFrame & { mode: DriveMode }) | null {
+    if (robot.slot !== 1) return null;
+    const id = this.armed[robot.alliance];
+    const recording = this.recordings.find((item) => item.id === id);
+    if (!recording) return null;
+    return { ...frameAt(recording.frames, AUTO_SEC - this.clock.remaining), mode: recording.mode };
+  }
+
+  private sampleRecording(
+    robot: Robot,
+    dt: number,
+    stick: Stick,
+    launch: boolean,
+    intake: boolean,
+    deposit: boolean,
+    eject: boolean,
+  ): void {
+    const capture = this.autoCapture;
+    if (!capture || robot.slot !== 1 || robot.alliance !== capture.alliance || this.clock.phase !== "setup") return;
+    capture.acc += dt;
+    if (capture.acc >= 0.05) {
+      capture.acc = 0;
+      capture.frames = appendFrame(capture.frames, {
+        t: capture.elapsed,
+        forward: stick.forward,
+        strafe: stick.strafe,
+        turn: stick.turn,
+        intake,
+        launch,
+        deposit,
+        eject,
+        hood: robot.hood,
+        turret: robot.turretYaw,
+      });
+    }
+    capture.elapsed += dt;
+    if (capture.elapsed >= AUTO_RECORD_SEC) this.finishRecording(`${capture.alliance} auto`);
   }
 
   private syncMeshes(): void {
@@ -1598,6 +1816,9 @@ export class Simulator {
       const rot = robot.body.rotation();
       robot.mesh.position.set(pos.x, pos.y - m(this.config.heightIn / 2), pos.z);
       robot.mesh.quaternion.set(rot.x, rot.y, rot.z, rot.w);
+      const yaw = yawOf(rot);
+      const turret = robot.mesh.getObjectByName("turret");
+      if (turret) turret.rotation.y = wrapPi(robot.turretYaw - yaw);
       const hood = robot.mesh.getObjectByName("hood");
       if (hood) hood.rotation.x = -((robot.hood - 50) * Math.PI) / 180;
     }
@@ -1654,13 +1875,8 @@ export class Simulator {
         if (line) line.visible = false;
         continue;
       }
-      const yaw = yawOf(robot.body.rotation());
-      const muzzle = this.muzzle(robot, yaw);
-      let shotYaw = yaw;
-      if (this.config.aimAssist) {
-        const mouth = this.mouth(alliance);
-        shotYaw = yaw + wrapPi(Math.atan2(mouth.x - muzzle.x, mouth.z - muzzle.z) - yaw) * 0.72;
-      }
+      const shotYaw = robot.turretYaw;
+      const muzzle = this.muzzle(robot, shotYaw);
       const arc = predictArc(muzzle, shotVelocity(shotYaw, robot.hood, this.config.launchSpeed), this.config.drag ? BALL_DRAG_K : 0);
       const position = line.geometry.getAttribute("position") as THREE.BufferAttribute;
       for (let i = 0; i < 48; i += 1) {
@@ -1689,11 +1905,15 @@ export class Simulator {
       nectarLegal: nectarEntryLegal(tips, this.legalEntries[robot.alliance], this.clock, false),
       lengthIn: this.config.lengthIn,
       collects: this.config.collects,
+      intakeEnds: this.config.intakeEnds,
+      hiveTilt: this.hives.find((hive) => hive.alliance === robot.alliance)?.angle ?? 0,
+      stuck: this.simTime < robot.stuckUntil,
       robot: {
         x: inches(pos.x),
         z: inches(pos.z),
         yaw: yawOf(robot.body.rotation()),
         hood: robot.hood,
+        turretYaw: robot.turretYaw,
         held: robot.held.map((piece) => ({ kind: piece.kind, alliance: piece.alliance })),
       },
       pieces: this.pieces
@@ -1774,7 +1994,18 @@ export class Simulator {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.setupComposer();
     this.applyLook();
+  }
+
+  private setupComposer(): void {
+    const composer = new EffectComposer(this.renderer);
+    composer.addPass(new RenderPass(this.scene, this.camera));
+    const bloom = new UnrealBloomPass(new THREE.Vector2(1024, 1024), 0.16, 0.38, 0.86);
+    composer.addPass(bloom);
+    composer.addPass(new OutputPass());
+    this.composer = composer;
+    this.onResize();
   }
 
   private readCameraKeys(): void {
@@ -1820,6 +2051,7 @@ export class Simulator {
     const width = this.canvas.clientWidth || window.innerWidth;
     const height = this.canvas.clientHeight || window.innerHeight;
     this.renderer.setSize(width, height, false);
+    this.composer?.setSize(width, height);
     if (this.camera instanceof THREE.PerspectiveCamera) {
       this.camera.aspect = width / Math.max(1, height);
       this.camera.updateProjectionMatrix();
