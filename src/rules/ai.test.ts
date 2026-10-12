@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { aimYaw, decide, gardenSpot, hiveMouthInches, shootingSpot, type AiInput, type AiRobot } from "./ai";
+import { aimYaw, decide, gardenSpot, hiveMouthInches, shootingSpot, type AiCommand, type AiInput, type AiRobot } from "./ai";
+import { chassisCommand } from "./drive";
 import { FLOWERS } from "./layout";
 import { presetSpeed, strafePenaltyPercent, turnDegPerSec, wheelSpeedMps } from "./garage";
+import type { Alliance } from "./constants";
+
+function fieldVelocity(cmd: Pick<AiCommand, "forward" | "strafe">, alliance: Alliance) {
+  return chassisCommand({ forward: cmd.forward, strafe: cmd.strafe, turn: 0 }, 0, "field", "mecanum", 1, 1, 1, alliance);
+}
 
 function robot(partial: Partial<AiRobot> = {}): AiRobot {
   return {
@@ -53,8 +59,9 @@ describe("match AI", () => {
   it("parks in the loading zone at endgame and stays earlier on a harder pace", () => {
     const parking = decide(input({ teleopRemaining: 18, robot: robot({ x: -20, z: 0 }) }));
     expect(parking.status).toMatch(/Park/);
-    expect(parking.forward).toBeGreaterThan(0.2);
-    expect(parking.strafe).toBeGreaterThan(0.2);
+    const towardPark = fieldVelocity(parking, "blue");
+    expect(towardPark.vx).toBeLessThan(-0.2);
+    expect(towardPark.vz).toBeGreaterThan(0.2);
     expect(parking.launch).toBe(false);
     expect(parking.deposit).toBe(false);
 
@@ -87,7 +94,9 @@ describe("match AI", () => {
       }),
     );
     expect(cmd.intake).toBe(true);
-    expect(cmd.forward).toBeGreaterThan(0);
+    const towardPiece = fieldVelocity(cmd, "blue");
+    expect(towardPiece.vz).toBeGreaterThan(0.2);
+    expect(Math.abs(towardPiece.vx)).toBeLessThan(0.05);
     expect(cmd.launch).toBe(false);
   });
 
@@ -178,7 +187,7 @@ describe("match AI", () => {
       }),
     );
     expect(cmd.status).toMatch(/Waiting/);
-    expect(cmd.strafe).toBeGreaterThanOrEqual(-0.05);
+    expect(fieldVelocity(cmd, "blue").vx).toBeLessThanOrEqual(0.05);
     expect(cmd.intake).toBe(false);
   });
 

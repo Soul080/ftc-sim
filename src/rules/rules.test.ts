@@ -96,11 +96,27 @@ describe("match clock", () => {
 });
 
 describe("drive and shots", () => {
-  it("maps field-centric sticks without using yaw", () => {
-    const command = chassisCommand({ forward: 1, strafe: 1, turn: 0 }, 1.2, "field", "mecanum", 2, 3);
-    expect(command.vz).toBeCloseTo(2);
-    expect(command.vx).toBeCloseTo(-2 * 0.9);
-    expect(command.yawRate).toBe(0);
+  it("maps field-centric sticks away from that alliance's driver, ignoring yaw", () => {
+    const red = chassisCommand({ forward: 1, strafe: 1, turn: 0 }, 1.2, "field", "mecanum", 2, 3, 0.9, "red");
+    expect(red.vx).toBeCloseTo(-2);
+    expect(red.vz).toBeCloseTo(-2 * 0.9);
+    expect(red.yawRate).toBe(0);
+    const blue = chassisCommand({ forward: 1, strafe: 1, turn: 0 }, -0.4, "field", "mecanum", 2, 3, 0.9, "blue");
+    expect(blue.vx).toBeCloseTo(2);
+    expect(blue.vz).toBeCloseTo(2 * 0.9);
+    expect(blue.yawRate).toBe(0);
+  });
+
+  it("drives W along the front bumper and A to the robot's left", () => {
+    const yaws = [0, Math.PI / 2, -Math.PI / 2, Math.PI, 0.7, 2.4];
+    for (const yaw of yaws) {
+      const ahead = chassisCommand({ forward: 1, strafe: 0, turn: 0 }, yaw, "robot", "mecanum", 2, 3);
+      expect(ahead.vx).toBeCloseTo(2 * Math.sin(yaw));
+      expect(ahead.vz).toBeCloseTo(2 * Math.cos(yaw));
+      const left = chassisCommand({ forward: 0, strafe: -1, turn: 0 }, yaw, "robot", "mecanum", 2, 3, 1);
+      expect(left.vx).toBeCloseTo(2 * -Math.cos(yaw));
+      expect(left.vz).toBeCloseTo(2 * Math.sin(yaw));
+    }
   });
 
   it("turns robot-centric forward with yaw", () => {
