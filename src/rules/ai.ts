@@ -109,9 +109,11 @@ export function decide(input: AiInput): AiCommand {
 
   const gain = GAIN[input.difficulty];
   if (input.stuck) {
-    // +strafe is −X. Drive toward the middle of the field, off whichever wall is closest.
-    const strafe = input.robot.x > 0 ? gain : -gain;
-    const forward = input.robot.z > 0 ? -gain : gain;
+    // Field sticks: forward is away from this alliance's wall, strafe is the driver's right.
+    // Aim the resulting world velocity at the middle of the field.
+    const sign = input.alliance === "blue" ? 1 : -1;
+    const forward = sign * (input.robot.x > 0 ? -gain : gain);
+    const strafe = sign * (input.robot.z > 0 ? -gain : gain);
     return { ...empty("Blocked backing off"), strafe, forward };
   }
   if (input.robot.held.some((piece) => piece.kind === "nectar" && piece.alliance && piece.alliance !== input.alliance)) {
@@ -275,8 +277,10 @@ function steer(
   let forward = 0;
   let strafe = 0;
   if (dist > stopIn) {
-    forward = (dz / dist) * gain;
-    strafe = (-dx / dist) * gain;
+    // Invert the field map in chassisCommand so (vx, vz) points along (dx, dz).
+    const sign = input.alliance === "blue" ? 1 : -1;
+    forward = ((sign * dx) / dist) * gain;
+    strafe = ((sign * dz) / dist) * gain;
   }
   const err = wrap(aimYaw(input.robot.x, input.robot.z, faceX, faceZ) - input.robot.yaw);
   const turn = clamp(err / 0.45) * gain;

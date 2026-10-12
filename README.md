@@ -52,7 +52,7 @@ The production build sets Vite `base` to `/ftc-sim/`, so the live site is [https
 | Enter nectar | Z | B |
 | Hood angle | 1 / 2 | 9 / 0 |
 
-W is toward the far wall in field-centric mode. D is toward blue. Robot-centric forward is the nose (the pale cone).
+In field-centric mode, W drives away from that alliance’s driver station (red toward −X, blue toward +X) and D strafes to the driver’s right. In robot-centric mode, W follows the yellow front bumper and A strafes to the robot’s left.
 
 Gamepad (slots 2, and slots 1 if the stick is actually moved): left stick drive, right stick X turn, RT intake, LT launch, RB deposit, LB eject, Y nectar, D-pad up/down hood, Start starts the match.
 

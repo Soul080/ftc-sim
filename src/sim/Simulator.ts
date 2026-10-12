@@ -1187,6 +1187,7 @@ export class Simulator {
       this.config.maxSpeed,
       this.config.turnRate,
       this.config.strafeEfficiency,
+      robot.alliance,
     );
     robot.wish.set(command.vx, 0, command.vz);
     const velocity = robot.body.linvel();
